@@ -3,15 +3,15 @@
 ## Instrucions for Linux Users
 
 ### Preinstallation
-Log into root user
+##### Log into root user
 > sudo su
-Install prerequisite packages
+##### Install prerequisite packages
 > sudo apt install nodejs npm
-Create Directory and Pull Code
+##### Create Directory and Pull Code
 > mkdir elog
-Start git repository
+##### Start git repository
 > git init
-Pull Code 
+##### Pull Code 
 > git pull https://github.com/BenLoewen/lyncean-elog.git
 
 ### Run Setup Tool
