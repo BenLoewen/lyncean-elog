@@ -1,0 +1,28 @@
+Preinstallation
+===============
+sudo su
+sudo apt install nodejs npm
+
+Installation steps 
+==================
+git init
+git pull https://github.com/BenLoewen/lyncean-elog.git
+pip install virtualenv
+yarn global add create-react-app react-scripts
+python3 -m venv env
+npm install react-dev-utils
+npm install react-bootstrap
+npm install jsx-to-string
+npm install jquery
+npm install html5-file-selector
+npm install react-dropzone
+npm install styled-components
+npm install use-force-update
+npm install bootstrap
+pip install flask
+source env/bin/activate
+npm run build
+cd flask-server
+python server.py
+
+
