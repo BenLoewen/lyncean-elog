@@ -4,13 +4,13 @@
 
 ### Log into root user
 > sudo su
-
 ### Install prerequisite packages
 > sudo apt install nodejs npm
-
 ### Create Directory and Pull Code
 > mkdir elog
+### Start git repository
 > git init
+### Pull Code 
 > git pull https://github.com/BenLoewen/lyncean-elog.git
 
 ### Run Setup Tool
