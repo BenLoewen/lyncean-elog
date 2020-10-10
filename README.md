@@ -1,6 +1,6 @@
 # Lyncean Elog (Alpha-v1)
 
-## Instructions for Linux Users
+## Instructions for Installation
 
 ### Preinstallation
 ##### Log into root user
