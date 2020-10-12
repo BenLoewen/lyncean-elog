@@ -1,31 +1,26 @@
 > What are your thoughts on these ways to storing configurations?
 
 
-##Operations Log
+## Operations Log
 
-###Config Name
+### Config Name
 - part:config
-- part:config
-- part:config
-
-###Another Config
 - part:config
 - part:config
 
-##Elecronics Log
+### Another Config
+- part:config
+- part:config
 
-###Config Name
+## Elecronics Log
+
+### Config Name
 
 Part
-
 	specification
-
 Part
-
 	specification
-
 Part
-
 	specification
 
 
