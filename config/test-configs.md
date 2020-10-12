@@ -1,6 +1,3 @@
-> What are your thoughts on these ways to storing configurations?
-
-
 ## Operations Log
 
 ### Config Name
