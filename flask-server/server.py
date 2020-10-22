@@ -2,33 +2,40 @@ from flask import Flask
 from flask import render_template
 from flask import Response, request, jsonify
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
+from urllib.request import urlopen
+import os
 app = Flask(__name__)
 
 
-current_id = 31
-lastSearch = None
-deleted = dict()
-data = []
 cursor = None
 db = None
 curr_entryId = 0
 curr_appendedId = 0
-logIds = {"testing":1,"operations":2,"custom":3}
-autocommitLog = {"testing":True,"operations":False,"custom":True}
-numLogsCommittedToday = {"testing":0,"operations":0,"custom":0}
+logIds = {"Electronics":1}
+database_path = 'data/elog'
+
+#All database functions
+#createDatabase
+#openDatabase
+#closeDatabase
+#setUpDatabase
 
 def createDatabase():
+  global logIds
+  global cursor
+  global db
+  openDatabase()
   print("setting up the database...")
   cursor.execute('''
     CREATE TABLE log(id INTEGER PRIMARY KEY, title TEXT,
-                       type TEXT, committed DATETIME, header INTEGER)
+                      committed TEXT, header INTEGER)
   ''')
   print("created table: log")
   cursor.execute('''
     CREATE TABLE entry(id INTEGER PRIMARY KEY, log INTEGER, author TEXT,
-                       type TEXT, submitted DATETIME)
+                       type TEXT, submitted TEXT)
   ''')
   print("Created table: entry")
   cursor.execute('''
@@ -59,8 +66,22 @@ def createDatabase():
     CREATE TABLE part(name TEXT, pname TEXT, pconfig TEXT)
   ''')
   print("created table: part")
+  cursor.execute('''
+    CREATE TABLE commits(logtype TEXT, numcommits INTEGER)
+  ''')
+  print("created table: autocommit")
+  cursor.execute('''
+    CREATE TABLE autocommit(logtype TEXT, shouldcommit BOOLEAN)
+  ''')
+  print("created table: commits")
   db.commit()
   print("all tables have been committed to the database")
+
+  for log in logIds:
+    cursor.execute("INSERT INTO autocommit VALUES (?,1)", [log])
+    cursor.execute("INSERT INTO commits VALUES (?,0)", [log])
+  print("autocommits have been set to be on for all logs")
+  db.commit()
   print("...")
 
 def openDatabase():
@@ -68,63 +89,85 @@ def openDatabase():
   global db
   print("opening database...")
   db = sqlite3.connect(':memory:')
-  db = sqlite3.connect('data/elog')
+  db = sqlite3.connect(database_path)
   cursor = db.cursor()
   print("database ready to use")
   print("...")
 
-def setUpDatabaase():
-  global cursor
-  time.sleep(.300)
-  openDatabase()
-  #NEED TO SET IDs
-  #TODO
-
 def closeDatabase():
   global cursor
   global db
+  db.commit()
+  print("committing all changes")
   db.close()
   print("closed database.")
 
-def autocommitLogs():
-  for log in logIds:
-    if autocommitLog[log]:
-      #TODO
-      pass
-
-def createTodaysLogs():
+def setUpDatabase():
   global cursor
-  autocommitLogs()
-  now = datetime.now()
-  date = now.strftime("%Y/%m/%d")
-  date_id = now.strftime("%Y%m%d")
-  print("creating logs for " + date + " ...")
-  for log in logIds:
-    if autocommitLog[log] == True:
-      id = date_id + str(logIds[log]) + str(numLogsCommittedToday[log])
-      insert = '''
-            INSERT INTO LOG (TITLE,TYPE,ID,COMMITTED,HEADER)
-            VALUES (?, ?, ?, NULL, NULL);
-            '''
-      data_tuple = (log + " " + date, log, int(id))
-      cursor.execute(insert, data_tuple)
-      numLogsCommittedToday[log] = 0
-      print("started " + log + " log")
+  time.sleep(.300)
+  openDatabase()
+  fetchIds()
+
+def fetchIds():
+  global cursor
+  global curr_appendedId
+  global curr_entryId
+  select = "SELECT MAX(id) FROM log;"
+  for row in cursor.execute(select):
+    max_id = row[0]
+    if max_id is None:
+      curr_entryId = 0
     else:
-      print("skipping " + log + " log")
-  print("done creating logs")
-  print('...')
+      curr_entryId = int(max_id) + 1
+  select = "SELECT MAX(id) FROM appended;"
+  for row in cursor.execute(select):
+    max_id = row[0]
+    if max_id is None:
+      curr_entryId = 0
+    else:
+      curr_entryId = int(max_id) + 1
+
+def commitLog(id):
+  #TODO
+  pass
+
+def changeAutoCommit(log,value):
+  global cursor
+  global db
+  update = "UPDATE autocommit SET shouldcommit=? WHERE logtype=?;"
+  cursor.execute(update,[value,log])
+  db.commit()
+
+def getAutoCommit(log):
+  global cursor
+  select = "SELECT shouldcommit FROM autocommit WHERE logtype=?"
+  for row in cursor.execute(select,[log]):
+    return row[0]
+
+def headerExists(logId):
+  global cursor
+  select = "SELECT header FROM log WHERE id =?;"
+  for row in cursor.execute(select,[logId]):
+    return row[0]=='NULL'
+
+def getNumCommits(log):
+  select = "SELECT numcommits FROM commits WHERE logtype =?;"
+  for row in cursor.execute(select,[log]):
+    print(row)
+    return row
 
 def addEntry(author,log):
   global cursor
   global curr_entryId
+  global db
   #Get time
   now = datetime.now()
   date_time = now.strftime("%Y/%m/%d, %H:%M:%S")
   #Get ID of log
-  logId = int(now.strftime("%Y%m%d") + str(logIds[log]) + str(numLogsCommittedToday[log]))
+  numcommits = getNumCommits(log)
+  logId = int(now.strftime("%Y%m%d")) + str(logIds[log]) + str(numcommits)
   #Get ID of entry
-  entryId = curr_entryId
+  entryId = int(now.strftime("%Y%m%d")) + curr_entryId
   curr_entryId+=1
   #Insert entry into database
   insert = '''
@@ -133,6 +176,7 @@ def addEntry(author,log):
           '''
   data_tuple = (date_time, author, logId, entryId, log)
   cursor.execute(insert, data_tuple)
+  db.commit()
   print("inserted new entry into entry table")
   return entryId,logId
 
@@ -147,6 +191,7 @@ def addTestConfiguration(log,operator,name,pnames,pconfigs):
           WHERE id=?;
           '''
   cursor.execute(insert,(entryId,logId))
+  db.commit()
   print("updated header with test configuration")
 
 
@@ -178,9 +223,9 @@ def addLogPost(log, author, comment, files, images, isAppended):
     appendedId=addAppendedStamp(author)
   addComment(comment,entryId,appendedId)
   for f in files:
-    addFile(f,entryId,appendedId)
+    addFile(f,log,entryId,appendedId)
   for img in images:
-    addImage(img,entryId,appendedId)
+    addImage(img,log,entryId,appendedId)
 
 def addAppendedStamp(author):
   global cursor
@@ -197,8 +242,9 @@ def addAppendedStamp(author):
   cursor.execute(insert, data_tuple)
   print("inserted appended stamp")
 
-def addFile(path,entryId,appendedId):
+def addFile(f,log,entryId,appendedId):
   global cursor
+  path = saveFile(f,log)
   insert = '''
           INSERT INTO FILE (PATH,ENTRY,APPENDED)
           VALUES (?, ?, ?);
@@ -207,13 +253,28 @@ def addFile(path,entryId,appendedId):
   cursor.execute(insert, data_tuple)
   print("inserted new file into file table")
 
-def addImage(url,entryId,appendedId):
+def saveFile(f,log):
+  name = f[0]
+  url = f[1]
+  with open(url,"rb") as f:
+    image_blob = f.read()
+  now = datetime.now()
+  date = now.strftime("/%Y/%m/%d/")
+  directory = "/common/" + str(log) + date
+  path = directory + name
+  newFile = open(path, "wb")
+  newFile.write(data)
+  newFile.close()
+  return paths
+
+def addImage(img,log,entryId,appendedId):
   global cursor
+  path = saveFile(img,log)
   insert = '''
           INSERT INTO IMAGE (URL,ENTRY,APPENDED)
           VALUES (?, ?, ?);
           '''
-  data_tuple = (url,entryId,appendedId)
+  data_tuple = (path,entryId,appendedId)
   cursor.execute(insert, data_tuple)
   print("inserted new image into image table")
 
@@ -227,21 +288,69 @@ def addComment(text,entryId,appendedId):
   cursor.execute(insert, data_tuple)
   print("inserted new comment into comment table")
 
+def getRecentLogData():
+  global cursor
+  ids = []
+
+  end_date_id = now.strftime("%Y%m%d")
+  start_date_id = datetime.today() - timedelta(days=7)
+  start_id = start_date_id + "00"
+  end_id = end_date_id + "00"
+
+  for row in cursor.execute('SELECT id FROM log WHERE submitted IS NULL AND header IS NOT NULL'):
+    ids.append(row[0])
+
+  for row in cursor.execute('SELECT id FROM log WHERE submitted IS NOT NULL AND id>=? AND ?>=id;',(start_id,end_id))
+    ids.append(row[0])
+
+  return ids
+
 def getLogData(logId):
   global cursor
-  entries = []
-  for row in cursor.execute('SELECT * FROM ENTRY WHERE LOG=?',logId):
-    entries.append(row)
-    print(row)
+  entryId = None
   log_info = {}
-  for row in cursor.execute('SELECT * FROM LOG WHERE ID=?',logId):
-    print(row)
-  return
+  for row in cursor.execute('SELECT * FROM LOG WHERE ID=?;',[logId]):
+    entryId = row[0]
+    log_info["title"] = row[1]
+  for row in cursor.execute('SELECT * FROM test WHERE entry=?;',[entryId]):
+    log_info["operator"] = row[0]
+    log_info["configname"] = row[1]
+  for row in cursor.execute('SELECT MAX(submitted) FROM entry WHERE log=?;', [entryId])
+    log_info["timestop"] = row[0]
+  for row in cursor.execute('SELECT MIN(submitted) FROM entry WHERE log=?;', [entryId])
+    log_info["timestart"] = row[0]
+  log_info["comps"] = []
+  log_info["specs"] = []
+  for row in cursor.execute('SELECT pname,pconfig FROM part WHERE name=?;', [log_info["configname"]]):
+    log_info["comps"].append(row[0])
+    log_info["specs"].append(row[1])
+  return log_info
 
+def getEntries(logId):
+  global cursor
+  entries = []
+  #entry = (files,comments,tags)
+  for row in cursor.execute('SELECT * FROM ENTRY WHERE LOG=? ORDER;',logId):
+    entry = {}
+    id = row[0]
+    entry["author"] = row[2]
+    entry["time"] = row[4]
+    entry["files"] = []
+    for row in cursor.execute('SELECT path FROM file WHERE entry=?;',id):
+      entry["files"].append(row[0])
+    entry["comments"] = []
+    for row in cursor.execute('SELECT text FROM comment WHERE entry=?;',id):
+      entry["comments"].append(row[0])
+    entry["tags"] = []
+    for row in cursor.execute('SELECT tag FROM tags WHERE entry=?;',id):
+      entry["tags"].append(row[0])
 
+    entries.append(entry)
+  return entries
 
 #All routes
 #add_entry: for adding new log entry
+#add_config: for adding new test configuration
 #get_log: get all entries and log data (from its id)
 #header_exists: retruns whether a header exists for a log (from log type)
 
@@ -273,6 +382,34 @@ def add_entry():
 
   return jsonify(successfullyWritten = success)
 
+
+@app.route('/add_config', methods=['POST'])
+def add_config():
+  json_data = request.get_json()
+  query = json_data["query"]
+
+  print("received request to add entry")
+  print("...")
+
+  log = query["log"]
+  operator = query["operator"]
+  name = query["name"]
+  pnames = query["pnames"]
+  pconfigs = query["pconfigs"]
+  success = None
+
+  try:
+    addTestConfiguration(log,operator,name,pnames,pconfigs)
+    print("succesfully added entry to " + log)
+    print("...")
+    success=True
+  except:
+    print("unsuccessful attempt to add entry to " + log)
+    print("...")
+    success=False
+
+  return jsonify(successfullyWritten = success)
+
 @app.route('/get_log', methods=['GET'])
 def get_log():
   json_data = request.get_json()
@@ -280,7 +417,56 @@ def get_log():
 
   id = query["id"]
 
+  try:
+    returnData = getLogData(id)
+  except:
+    print("Unsucessful attempt to retrieve log: " + str(id))
+
+  return jsonify(returnData = returnData)
+
+@app.route('/get_entries', methods=['GET'])
+def get_entries():
+  json_data = request.get_json()
+  query = json_data["query"]
+
+  id = query["id"]
+  entries = getEntries()
+
+  return jsonify(entries = entries)
+
+@app.route('/get_recent', methods=['GET'])
+def get_recent():
+  ids = getRecentLogData()
+  return jsonify(ids = ids)
+
+@app.route('/set_autocommit', methods=['POST'])
+def set_autocommit():
+  json_data = request.get_json()
+  query = json_data["query"]
+
+  log = query["log"]
+  value = query["autocommit"]
+
+  try:
+    changeAutoCommit(
+
   return jsonify(successfullyWritten = success)
+
+@app.route('/get_autocommit', methods=['GET'])
+def get_autocommit():
+  json_data = request.get_json()
+  query = json_data["query"]
+
+  log = query["log"]
+
+  value = 1
+
+  try:
+    value = getAutoCommit(log)
+  except:
+    print("unsuccessful attempt to get autocommit")
+
+  return jsonify(value = value)
 
 
 @app.route('/header_exists', methods=['GET', 'POST'])
@@ -293,146 +479,92 @@ def header_exists():
 
   log = query["log"]
   does = True
-  if numLogsCommittedToday[log]==0:
-    does = False
-    print("no header exists for today's " + log + " log")
-    print('...')
-  else:
-    print("header exists for today's " + log + " log")
-    print('...')
+  #Get time
+  now = datetime.now()
+  date_time = now.strftime("%Y/%m/%d, %H:%M:%S")
+  #Get ID of log
+  numcommits = getNumCommits(log)
+  logId = int(now.strftime("%Y%m%d") + str(logIds[log]) + str(numcommits))
+  #Check whether header exists
+  doesExist = headerExists(logId)
 
-  return jsonify(exists = does)
+  return jsonify(exists = doesExist)
+
+@app.route('/get_config', methods=['GET', 'POST'])
+def header_exists():
+  json_data = request.get_json()
+  query = json_data["query"]
+  name = query["name"]
+  configs = {}
+
+  print("received request to get configs")
+  print('...')
+
+  try:
+    configs = getConfigsFromDatabase()
+  except:
+    print("unsuccessful attempt to retrieve configs)
+    print("...")
 
 
+  return jsonify(configs = configs)
 
-@app.route('/view/<id>')
-def view(id=None):
-  global data
-  global deleted
-  d = None
-  for i in range(len(data)):
-    v = data[i]
-    if v["id"] == int(id):
-      d = v
-  mark_as_deleted = []
-  for i in range(len(d["tags"])):
-    if int(id) not in deleted or i not in deleted[int(id)]:
-      mark_as_deleted.append(0)
+def getConfigFromDatabase(name):
+  global cursor
+  configs = []
+  select = "SELECT * FROM part WHERE name=?;"
+  for row in cursor.execute(select,name):
+    configs.append([row[1],row[2]])
+  return configs
+
+@app.route('/get_configs', methods=['GET', 'POST'])
+def header_exists():
+  json_data = request.get_json()
+  query = json_data["query"]
+  configs = {}
+
+  print("received request to get configs")
+  print('...')
+
+  try:
+    configs = getConfigsFromDatabase()
+  except:
+    print("unsuccessful attempt to retrieve configs)
+    print("...")
+
+  return jsonify(configs = configs)
+
+def loadConfigs():
+  configs = getConfigsFromDatabase()
+  #TODO
+  return configs
+
+
+def getConfigsFromDatabase():
+  global cursor
+  configs = {}
+  select = "SELECT * FROM part;"
+  for row in cursor.execute(select):
+    #row = (name, pname, pconfig)
+    if row[0] not in configs:
+      configs[row[0]] = [[row[1],row[2]],]
     else:
-      mark_as_deleted.append(1)
-  return render_template('view_data.html', id=d["id"], title=d["title"], video=d["video"], description=d["description"], thousands_of_reddit_upvotes = d["thousands_of_reddit_upvotes"], tags = d["tags"], deleted = mark_as_deleted)
+      configs[row[0]].append([row[1],row[2]])
+  #test(operator, name, entry)
+  return configs
 
-@app.route('/edit/<id>')
-def edit(id=None):
-  d = None
-  for i in range(len(data)):
-    v = data[i]
-    if v["id"] == int(id):
-      d = v
-  print(str(d["id"]) + '\n')
-  return render_template('edit_data.html',tags = d["tags"], id= d["id"])
-
-@app.route('/create_entry', methods=['GET', 'POST'])
-def create_entry():
-  global data
-  global current_id
-
-  json_data = request.get_json()
-  new_entry = json_data
-  new_entry["id"] = current_id
-  data.append(new_entry)
-  print(len(data))
-  print(new_entry)
-  return_data = {"id":current_id}
-  current_id +=1
-  return jsonify(data = return_data)
-
-@app.route('/change_entry', methods=['POST', 'GET'])
-def change_entry():
-  global data
-  json_data = request.get_json()
-  query = json_data
-  to_edit = int(query["id"])
-  new_tags = query["tags"]
-  new_desc = query["description"]
-  deleted[to_edit] = set()
-  for d in data:
-    if d["id"] == to_edit:
-      d["tags"] = new_tags
-      d["description"] = new_desc
-  return jsonify(data = data)
-
-@app.route('/delete_data', methods=['GET', 'POST'])
-def delete_data():
-  global data
-  global current_id
-  global lastSearch
-  json_data = request.get_json()
-  query = json_data
-  to_delete = int(query["id"])
-  for d in data:
-    if d["id"] == to_delete:
-      data.remove(d)
-  for d in lastSearch:
-    if d["id"] == to_delete:
-      lastSearch.remove(d)
-  return_data = lastSearch
-  return jsonify(data = return_data)
-
-
-@app.route('/remove_index', methods=['GET', 'POST'])
-def remove_index():
-  global data
-  global deleted
-  json_data = request.get_json()
-  query = json_data
-  id = int(query["id"])
-  index = int(query["index"])
-  if id not in deleted:
-    deleted[id] = set()
-  deleted[id].add(index)
-  print(deleted[id])
-  to_change = None
-  for d in data:
-    if d["id"] == id:
-      to_change = d
-  return_tags = to_change["tags"]
-  mark_as_deleted = []
-  for i in range(len(to_change["tags"])):
-    if i not in deleted[id]:
-      mark_as_deleted.append(0)
-    else:
-      mark_as_deleted.append(1)
-  return jsonify(tags = return_tags, deleted = mark_as_deleted)
-
-@app.route('/add_back', methods=['GET', 'POST'])
-def add_back():
-  global data
-  global deleted
-  json_data = request.get_json()
-  query = json_data
-  id = int(query["id"])
-  index = int(query["index"])
-  deleted[id].remove(index)
-  to_change = None
-  for d in data:
-    if d["id"] == id:
-      to_change = d
-  return_tags = to_change["tags"]
-  mark_as_deleted = []
-  for i in range(len(to_change["tags"])):
-    if i not in deleted[id]:
-      mark_as_deleted.append(0)
-    else:
-      mark_as_deleted.append(1)
-  return jsonify(tags = return_tags, deleted = mark_as_deleted)
-  
 
 @app.route("/")
 def my_index():
     return render_template("index.html")
 
+def runAutojobs():
+  os.system("python autojobs.py")
 
 if __name__ == '__main__':
-  setUpDatabaase()
+  if os.path.isfile(database_path):
+    setUpDatabase()
+  else:
+    createDatabase()
+  configs =
   app.run(port=int("4000"), debug = True)
