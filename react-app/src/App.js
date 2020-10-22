@@ -30,8 +30,8 @@ import ListGroupItem from 'react-bootstrap/ListGroupItem'
 import $ from "jquery";
 import DropdownMenu from 'react-bootstrap/esm/DropdownMenu';
 import DropdownButton from 'react-bootstrap/DropdownButton'
-import { createPopper } from '@popperjs/core/lib/createPopper';
-import { auto } from '@popperjs/core';
+import { saveAs } from 'file-saver';
+import request from "superagent";
 
 let buttonId = 0
 let iter = 0
@@ -40,9 +40,11 @@ let files = []
 let shownFiles = []
 let uploadedImages = []
 let alerts = [<Alert key={1} variant="success">Success</Alert>,<Alert key={2} variant="warning">Warning, changes may have not gone through!</Alert>]
-const list_of_logs = ["testing", "operations", "custom"]
+const list_of_logs = ["Electronics"]
 let lastUrl = ""
+let query = ""
 let testing_config_entered = true;
+let currentLog = ""
 
 //THESE ARE TEMPORARY AND SHOULD BE REMOVED WHEN APP INTEGRATED IN FLASK SERVER
 let glob_config = "High Power RF Test"
@@ -56,45 +58,170 @@ let glob_user = "operator"
 let glob_log = "Testing Log 09/28/20"
 
 let test_log = "Example"
-//
+
+
+
 
 
 function App() {
   let endOfUrl = window.location.href.indexOf("#")
   let currUrl = window.location.href.slice(endOfUrl)
+
+  let q = window.location.href.indexOf("?")
+  query = window.location.href.slice(q)
+
   lastUrl = currUrl
   const element = <h1></h1>;
-  switch(currUrl){
-    case "#/write-to/testing-log":
-      return(<AddLogEntry log={"testing"}/>);
-    case "#/write-to/operations-log":
-      return(<AddLogEntry log={"operations"}/>);
-    case "#/view/recent-logs":
-      return(<RecentLogs/>);
-      break;
-    case "#/view/recent-logs/demo":
-      return(<Demo/>);
-      break;
-    default:
-      window.location.href = "#/write-to/testing-log"
-      window.location.reload(false);
+  if(currUrl.indexOf("#/write-to/electronics-log")==0){
+    currentLog = "electronics"
+    return(<AddLogEntry log={currentLog}/>);
+  }
+  else if(currUrl.indexOf("#/view/recent-logs")==0){
+    return(<RecentLogs/>);
+  }
+  else if(currUrl.indexOf("#/view/log")==0){
+    return(<ViewLog/>);
+  }
+  else{
+    window.location.href = "#/write-to/electronics-log"
+    window.location.reload(false);
   }
 }
 
+function tick(){
+  let endOfUrl = window.location.href.indexOf("#")
+  let currUrl = window.location.href.slice(endOfUrl)
+
+  let q = window.location.href.indexOf("?")
+  query = window.location.href.slice(q)
+
+  if(lastUrl!=currUrl){
+    const element = <h1></h1>;
+    if(currUrl.indexOf("#/write-to/electronics-log")==0){
+      currentLog = "electronics"
+      ReactDOM.render(<AddLogEntry log={currentLog}/>, document.getElementById('root'));
+    }
+    else if(currUrl.indexOf("#/view/recent-logs")==0){
+      ReactDOM.render(<RecentLogs/>, document.getElementById('root'));
+    }
+    else if(currUrl.indexOf("#/view/log")==0){
+      ReactDOM.render(<ViewLog/>, document.getElementById('root'));
+    }
+    else{
+      ReactDOM.render(element, document.getElementById('root'));
+      window.location.reload(false);
+    }
+  }
+}
+
+setInterval(tick, 100);
+
 function Post(props){
+    let files = []
+    let comments = []
+    let tags = []
+    for(let i=0;i<props.files.length;i++){
+      files.push(<File path={props.files[i]}/>)
+    }
+    for(let i=0;i<props.comments.length;i++){
+      comments.push(<Comment text={props.comments[i]}/>)
+    }
+    for(let i=0;i<props.tags.length;i++){
+      tags.push(props.tags[i])
+    }
     return(<Container>
-            <Row><div class="italic-large">Posted at 09:39 by operator</div></Row>
+            <Row><div class="italic-large">Posted at {props.time} by {props.author}</div></Row>
             <Row>
               <Col xs={12}>
-                <File path={props.file}/>
-                <Comment text={props.comment}/>
+                <Row>{files}</Row>
+                <Row>{comment}</Row>
+                <Tag tags={tags}/>
               </Col>
             </Row>
            </Container>);
 };
 
-function Demo(){
-  let test = (<Post file="pics" comment="Rack temperatures"/>);
+
+function LogPost(props){
+  let data = props.data
+  let header = testingConfigToTable(data["operator"],data["configname"],data["comps"],data["specs"],true)
+  return(
+    <Card style={{ width: '80rem' }}>
+      <Card.Body>
+        <Card.Title>{data["title"]}</Card.Title>
+        <Card.Subtitle className="mb-2 text-muted">First Entry: {data["timestart"]}</Card.Subtitle>
+        <Card.Subtitle className="mb-2 text-muted">Last Entry: {data["timestop"]}</Card.Subtitle>
+        <ListGroup className="list-group-flush">
+          <ListGroupItem>
+            {header}
+          </ListGroupItem>
+          <Entries entries={props.entries}/>
+        </ListGroup>
+        <Card.Link href="#">Previous Day's Log</Card.Link>
+        <Card.Link href="#">Next Day's Log</Card.Link>
+      </Card.Body>
+    </Card>
+  )
+}
+
+function Entries(props){
+  let result=[]
+  let entries = props.entries
+  let i = 0
+  for(i=0; i< entries.length; i++){
+    let entry = entries[i]
+    result.push(<ListGroupItem><Post files={entry["files"]} comments={entry["comments"]} time={entry["time"]} author={entry["author"]} tags={entry["tags"]}/></ListGroupItem>)
+  }
+  return result
+}
+
+function getLogData(id){
+  let data = {"operator": "Rod L", "configname" : "High Power RF Test", "comps" : ["Structures","Loads"], "specs" : ["####","####"], "timestart" : "09:00 AM","timestop" : "05:00 PM", "title": "Testing Log 10/18/20"}
+  return data
+  $.ajax({
+    type: "POST",
+    url: "/get_log",
+    dataType : "json",
+    contentType: "application/json; charset=utf-8",
+    data : JSON.stringify({"id":id}),
+    success: function(result){
+        return result["data"]
+    },
+    error: function(request, status, error){
+        console.log("Error");
+        console.log(request)
+        console.log(status)
+        console.log(error)
+    }
+  })
+}
+
+function getLogEntries(id){
+  $.ajax({
+    type: "POST",
+    url: "/get_entries",
+    dataType : "json",
+    contentType: "application/json; charset=utf-8",
+    data : JSON.stringify({"id":id}),
+    success: function(result){
+        return result["entries"]
+    },
+    error: function(request, status, error){
+        console.log("Error");
+        console.log(request)
+        console.log(status)
+        console.log(error)
+    }
+  })
+}
+
+
+function ViewLog(props){
+  //let data = getLogData()
+  //let entries = getLogEntries()
+  let data = {"operator": "Rod L", "configname" : "High Power RF Test", "comps" : ["Structures","Loads"], "specs" : ["####","####"], "timestart" : "09:00 AM","timestop" : "05:00 PM", "title": "Testing Log 10/18/20"}
+  let entries = [{"files":["file"],"comments":["testing testing 1 2 3"],"tags":["testing"],"time": "2:37", "author":"operator"}]
+
 
   function handleChange(){
     window.location.href = "#/view/recent-logs"
@@ -105,7 +232,6 @@ function Demo(){
 
   }
 
-  let text = testingConfigToTable("Rod L",glob_config,glob_comp,glob_nums,true)
 
   return(<div className="App">
       <Container>
@@ -119,29 +245,32 @@ function Demo(){
               <Line/>
               </Row>
               <Row>
-                <Card style={{ width: '80rem' }}>
-                  <Card.Body>
-                    <Card.Title>{glob_log}</Card.Title>
-                    <Card.Subtitle className="mb-2 text-muted">First Entry: 09/28/20 09:00 PST</Card.Subtitle>
-                    <Card.Subtitle className="mb-2 text-muted">Last Entry: 09/28/20 09:00 PST</Card.Subtitle>
-                    <ListGroup className="list-group-flush">
-                      <ListGroupItem>
-                        {text}
-                      </ListGroupItem>
-                      <ListGroupItem>
-                        {test}
-                      </ListGroupItem>
-                    </ListGroup>
-                    <Card.Link href="#">Previous Day's Log</Card.Link>
-                    <Card.Link href="#">Next Day's Log</Card.Link>
-                  </Card.Body>
-                </Card>
+                <LogPost data={data} entries={entries} />
               </Row>
             </Container>
           </Col>
         </Row>
       </Container>
     </div>);
+}
+
+function getRecentLogIds(){
+  return [0]
+  $.ajax({
+    type: "POST",
+    url: "/get_recent",
+    dataType : "json",
+    contentType: "application/json; charset=utf-8",
+    success: function(result){
+        return result["ids"]
+    },
+    error: function(request, status, error){
+        console.log("Error");
+        console.log(request)
+        console.log(status)
+        console.log(error)
+    }
+  })
 }
 
 function AddLogEntry(props){
@@ -166,7 +295,7 @@ function RecentLogs(props){
         <Row>
           <Col xs={12}>
             <ElogNavbar/>
-            <LogViewer/>
+            <LogMenu/>
           </Col>
         </Row>
       </Container>
@@ -174,36 +303,6 @@ function RecentLogs(props){
   );
 }
 
-
-function tick(){
-  let endOfUrl = window.location.href.indexOf("#")
-  let currUrl = window.location.href.slice(endOfUrl)
-  if(lastUrl!=currUrl){
-    const element = <h1></h1>;
-    switch(currUrl){
-      case "#/write-to/testing-log":
-        ReactDOM.render(<AddLogEntry log={"testing"}/>, document.getElementById('root'));
-        console.log('HEY')
-        //window.location.reload(false);
-        break;
-      case "#/write-to/operations-log":
-        ReactDOM.render(<AddLogEntry log={"operations"}/>, document.getElementById('root'));
-        console.log('HEY')
-        //window.location.reload(false);
-        break;
-      case "#/view/recent-logs":
-        ReactDOM.render(<RecentLogs log={"operations"}/>, document.getElementById('root'));
-        console.log('wat')
-        //window.location.reload(false);
-        break;
-      default:
-        ReactDOM.render(element, document.getElementById('root'));
-        window.location.reload(false);
-    }
-  }
-}
-
-setInterval(tick, 100);
 
 function header_exists(log){
   console.log(testing_config_entered)
@@ -232,6 +331,27 @@ function header_exists(log){
     });
 }
 
+function change_autocommit(value){
+  return true
+  let log = "testing"
+  $.ajax({
+    type: "POST",
+    url: "/change_automcommit",
+    dataType : "json",
+    contentType: "application/json; charset=utf-8",
+    data : JSON.stringify(log),
+    success: function(result){
+        return result["exists"]
+    },
+    error: function(request, status, error){
+        console.log("Error");
+        console.log(request)
+        console.log(status)
+        console.log(error)
+    }
+});
+}
+
 class WriteToLog extends React.Component{
   constructor(props){
     super(props)
@@ -251,8 +371,9 @@ class WriteToLog extends React.Component{
         </div>
         <Row>
           <Col xs={4}><LogDropdownBox log={this.state.log} prepend={"Adding Entry to: "}/></Col>
-          <Col xs={4}><AutosaveLog value={'1'}/></Col>
-          <Col xs={4}><ManualSave/></Col>
+          <Col xs={3}><SubsystemDropdownBox/></Col>
+          <Col xs={3}><AutosaveLog value={'1'}/></Col>
+          <Col xs={2}><ManualSave/></Col>
         </Row>
         {this.form}
       </Container>
@@ -292,7 +413,7 @@ function TestConfiguration(props) {
         }
       }
       testing_config_entered=true
-      ReactDOM.render(<AddLogEntry log={"testing"}/>, document.getElementById('root'));
+      ReactDOM.render(<AddLogEntry log={currentLog}/>, document.getElementById('root'));
     }
   };
 
@@ -367,36 +488,29 @@ function TestConfiguration(props) {
 }
 
 
-class LogViewer extends React.Component{
-  constructor(props){
-    super(props)
-    this.menu = (<LogMenu/>);
-  }
-
-  render(){
-    return this.menu;
-  }
-}
-
 function LogMenu(props){
 
-  let text = testingConfigToTable("Rod L",glob_config,glob_comp,glob_nums,false)
-  let title = glob_log
-  let id = "0"
-
+  let ids = getRecentLogIds()
   let items = []
 
-  let example = (<div>Header entry shown here.</div>);
+  console.log(ids)
 
-  items.push(<LogCard text={text} title={title} id={id} updated="today"/>);
-  items.push(<LogCard text={example} title="Title of Log Shown Here" id="demo" updated="today"/>);
+  for(let i=0;i<ids.length;i++){
+    let data = getLogData(i)
+    console.log(data)
+
+    let text = testingConfigToTable(data["operator"],data["configname"],[],[],false)
+    let title = data["title"]
+    let id = "0"
+    let updated = data["timestop"]
+
+    let example = (<div>Header entry shown here.</div>);
+
+    items.push(<LogCard text={text} title={title} id={id} updated={updated}/>);
+  }
 
   return(<CardGroup>{items}</CardGroup>);
-  //glob_log = title
-  //glob_user
-  //glob_comp.push(components(STR))
-  //glob_nums.push(numbers(STR))
-  //glob_entries.push((glob_user(STR),files(LIST OF STR),event.target.comment.value(STR)))
+
 }
 
 let Image = function(props){
@@ -420,7 +534,7 @@ function LogCard(props){
       <Card.Text>
         {props.text}
       </Card.Text>
-      <Card.Link href={"#/view/recent-logs/demo"}>View Log</Card.Link>
+      <Card.Link href={"#/view/log/demo"}>View Log</Card.Link>
     </Card.Body>
     <Card.Footer>
     <small className="text-muted">Last updated {props.updated}</small>
@@ -591,6 +705,20 @@ class LogDropdownBox extends React.Component{
   }
 }
 
+function SubsystemDropdownBox(props){
+  return(
+    <Dropdown>
+      <span>Subsystem: </span>
+      <Dropdown.Toggle variant="secondary" id="dropdown-basic">
+        None
+      </Dropdown.Toggle>
+      <Dropdown.Menu>
+        <Dropdown.Item href="#/test">Test</Dropdown.Item>
+      </Dropdown.Menu>
+    </Dropdown>
+  );
+}
+
 class ManualSave extends React.Component{
   constructor(props){
     super(props)
@@ -607,7 +735,7 @@ class ManualSave extends React.Component{
 
   render(){
     return(
-      <Button variant="light" onClick={() => this.handleChange()}>Manually Commit Log</Button>
+      <Button variant="light" onClick={() => this.handleChange()}>Manual Commit</Button>
     );
   }
 }
@@ -747,24 +875,51 @@ Array.prototype.remove = function() {
 
 };
 
+
 async function myCustomFileGetter(event) {
   const files = [];
   const fileList = event.dataTransfer ? event.dataTransfer.files : event.target.files;
 
   for (var i = 0; i < fileList.length; i++) {
     const file = fileList.item(i);
+    console.log(file)
+
+
     files.push(file);
     shownFiles.push(file)
+
+
     if(file.name.endsWith(".jpg") || file.name.endsWith(".png") || file.name.endsWith(".jpeg")){
       Object.assign(file, {
         preview: URL.createObjectURL(file)
       })
       uploadedImages.push(file)
     }
+
+
+    console.log(file)
+
+    const reader = new FileReader()
+
+    reader.onabort = () => console.log('file reading was aborted')
+    reader.onerror = () => console.log('file reading has failed')
+    reader.onload = () => {
+    // Do whatever you want with the file contents
+      const binaryStr = reader.result
+    }
+    reader.readAsArrayBuffer(file)
+
   }
 
   return files;
 }
+
+function sendFileC(file){
+  let m = 'localhost:4000'
+  let a = new URL(m)
+  let url = new File([file],"localhost:4000/test/test.png")
+}
+
 
 function ElogNavbar(props){
   return (<Navbar bg="primary" variant="dark">
@@ -792,6 +947,11 @@ let Comment = function(props){
             <figcaption>{caption}</figcaption>
           </figure>
   );
+}
+
+let Tag = function(props){
+  let tag = "Tagged with: " + props.tags
+  return(<div class="italic">{tag}</div>);
 }
 
 let File = function(props){
