@@ -97,8 +97,7 @@ def openDatabase():
 def closeDatabase():
   global cursor
   global db
-  db.commit()
-  print("committing all changes")
+  commitDatabase()
   db.close()
   print("closed database.")
 
@@ -107,6 +106,11 @@ def setUpDatabase():
   time.sleep(.300)
   openDatabase()
   fetchIds()
+
+def commitDatabase():
+  global db
+  db.commit()
+  print("changes committed")
 
 def fetchIds():
   global cursor
@@ -127,16 +131,35 @@ def fetchIds():
     else:
       curr_entryId = int(max_id) + 1
 
-def commitLog(id):
-  #TODO
-  pass
+def commitLog(id,log):
+  global cursor
+  now = datetime.now()
+  #Commit old log
+  date_time = now.strftime("%Y/%m/%d, %H:%M:%S")
+  update = "UPDATE log SET submitted=? WHERE id=?;"
+  data_tuple = (date_time,id)
+  cursor.execute(update,data_tuple)
+  numCommits = getNumCommits(log)
+  update2 = "UPDATE commits SET numcommits=?;"
+  cursor.execute(update2,[numCommits+1])
+  #Create new log
+  numCommits+=1
+  date_id = now.strftime("%Y%m%d")
+  date = now.strftime("%Y/%m/%d")
+  id = date_id + str(logIds[log]) + str(numCommits)
+  insert = '''
+            INSERT INTO LOG (TITLE,ID,COMMITTED,HEADER)
+            VALUES (?, ?, NULL, NULL);
+            '''
+  data_tuple = (log + " Log " + date + "(" + str(numCommits) + ")", int(id))
+  cursor.execute(insert, data_tuple)
+  commitDatabase()
 
 def changeAutoCommit(log,value):
   global cursor
-  global db
   update = "UPDATE autocommit SET shouldcommit=? WHERE logtype=?;"
   cursor.execute(update,[value,log])
-  db.commit()
+  commitDatabase()
 
 def getAutoCommit(log):
   global cursor
@@ -176,7 +199,6 @@ def addEntry(author,log):
           '''
   data_tuple = (date_time, author, logId, entryId, log)
   cursor.execute(insert, data_tuple)
-  db.commit()
   print("inserted new entry into entry table")
   return entryId,logId
 
@@ -191,7 +213,7 @@ def addTestConfiguration(log,operator,name,pnames,pconfigs):
           WHERE id=?;
           '''
   cursor.execute(insert,(entryId,logId))
-  db.commit()
+  commitDatabase()
   print("updated header with test configuration")
 
 
@@ -215,7 +237,8 @@ def addPart(name,pname,pconfig):
   cursor.execute(insert, data_tuple)
   print("inserted part configuration")
 
-def addLogPost(log, author, comment, files, images, isAppended):
+def addLogPost(log, author, comment, files, images, tags, isAppended):
+  global db
   entryId,logId = addEntry(author,log)
   #Add post data to databse
   appendedId = 0
@@ -226,6 +249,9 @@ def addLogPost(log, author, comment, files, images, isAppended):
     addFile(f,log,entryId,appendedId)
   for img in images:
     addImage(img,log,entryId,appendedId)
+  for tag in tags:
+    addTag(tag,entryId)
+  commitDatabase()
 
 def addAppendedStamp(author):
   global cursor
@@ -287,6 +313,17 @@ def addComment(text,entryId,appendedId):
   data_tuple = (text,entryId,appendedId)
   cursor.execute(insert, data_tuple)
   print("inserted new comment into comment table")
+
+def addTag(tag,entryId):
+  global cursor
+  #tag(entry INTEGER, tag TEXT)
+  insert = '''
+          INSERT INTO tag (ENTRY,TAG)
+          VALUES (?, ?);
+          '''
+  data_tuple = (text,entryId)
+  cursor.execute(insert, data_tuple)
+  print("inserted new tag into tag table")
 
 def getRecentLogData():
   global cursor
@@ -367,11 +404,12 @@ def add_entry():
   files = query["files"]
   comment = query["comment"]
   images = query["images"]
+  tags = query["tag"]
   isAppended = query["isAppended"]
   success = None
 
   try:
-    addLogPost(log, author, files, comment,images,isAppended)
+    addLogPost(log, author, files, comment,images,tags,isAppended)
     print("succesfully added entry to " + log)
     print("...")
     success=True
@@ -445,12 +483,16 @@ def set_autocommit():
   query = json_data["query"]
 
   log = query["log"]
-  value = query["autocommit"]
+  value = query["value"]
 
   try:
-    changeAutoCommit(
+    changeAutoCommit(log,value)
+    succ = True
+  except:
+    print("unsuccesful attempt to set autocommit")
+    succ = False
 
-  return jsonify(successfullyWritten = success)
+  return jsonify(succ = succ)
 
 @app.route('/get_autocommit', methods=['GET'])
 def get_autocommit():
@@ -467,6 +509,23 @@ def get_autocommit():
     print("unsuccessful attempt to get autocommit")
 
   return jsonify(value = value)
+
+@app.route('/commit_log', methods=['POST'])
+def commit_log():
+  json_data = request.get_json()
+  query = json_data["query"]
+
+  log = query["log"]
+  id = query["id"]
+
+  try:
+    commitLog(id,log)
+    succ = True
+  except:
+    print("unsuccessful attempt to get autocommit")
+    succ = False
+
+  return jsonify(succ = succ)
 
 
 @app.route('/header_exists', methods=['GET', 'POST'])
