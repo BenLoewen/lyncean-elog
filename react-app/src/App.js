@@ -45,30 +45,24 @@ let lastUrl = ""
 let query = ""
 let testing_config_entered = true;
 let currentLog = ""
+let rootUrl = ""
 
 //THESE ARE TEMPORARY AND SHOULD BE REMOVED WHEN APP INTEGRATED IN FLASK SERVER
-let glob_config = "High Power RF Test"
-let glob_comp = ["Structures","Loads"]
-let glob_nums = ["#,#,#,#","#,#,#,#"]
-
-let glob_entries = []
-
 let glob_user = "operator"
-
-let glob_log = "Testing Log 09/28/20"
-
-let test_log = "Example"
-
-
-
+let glob_subsystems = ["MUX","MtrCntrl","Sync","InjLsFdbk","PwrMtr","LLRF","RFPPA","VacRad","SbandAmp","UniPolar","BiPolar","BPM","TSDG", "Magnets", "Mod"]
 
 
 function App() {
   let endOfUrl = window.location.href.indexOf("#")
   let currUrl = window.location.href.slice(endOfUrl)
 
-  let q = window.location.href.indexOf("?")
-  query = window.location.href.slice(q)
+  let q = currUrl.indexOf("?")
+  if(q==-1){
+    q = currUrl.length
+  }
+  query = currUrl.slice(q+1)
+  rootUrl = currUrl.slice(0,q)
+  console.log(rootUrl)
 
   lastUrl = currUrl
   const element = <h1></h1>;
@@ -83,6 +77,7 @@ function App() {
     return(<ViewLog/>);
   }
   else{
+    console.log(currUrl)
     window.location.href = "#/write-to/electronics-log"
     window.location.reload(false);
   }
@@ -92,9 +87,13 @@ function tick(){
   let endOfUrl = window.location.href.indexOf("#")
   let currUrl = window.location.href.slice(endOfUrl)
 
-  let q = window.location.href.indexOf("?")
-  query = window.location.href.slice(q)
-
+  let q = currUrl.indexOf("?")
+  if(q==-1){
+    q = currUrl.length
+  }
+  let prev_query = query
+  query = currUrl.slice(q+1)
+  rootUrl = currUrl.slice(0,q)
   if(lastUrl!=currUrl){
     const element = <h1></h1>;
     if(currUrl.indexOf("#/write-to/electronics-log")==0){
@@ -111,6 +110,10 @@ function tick(){
       ReactDOM.render(element, document.getElementById('root'));
       window.location.reload(false);
     }
+    if(prev_query!=query){
+      window.location.reload(false);
+    }
+    lastUrl = currUrl;
   }
 }
 
@@ -134,7 +137,7 @@ function Post(props){
             <Row>
               <Col xs={12}>
                 <Row>{files}</Row>
-                <Row>{comment}</Row>
+                <Row>{comments}</Row>
                 <Tag tags={tags}/>
               </Col>
             </Row>
@@ -142,7 +145,7 @@ function Post(props){
 };
 
 
-function LogPost(props){
+function Log(props){
   let data = props.data
   let header = testingConfigToTable(data["operator"],data["configname"],data["comps"],data["specs"],true)
   return(
@@ -217,8 +220,10 @@ function getLogEntries(id){
 
 
 function ViewLog(props){
-  //let data = getLogData()
-  //let entries = getLogEntries()
+  let id = query
+  console.log(id)
+  //let data = getLogData(id)
+  //let entries = getLogEntries(id)
   let data = {"operator": "Rod L", "configname" : "High Power RF Test", "comps" : ["Structures","Loads"], "specs" : ["####","####"], "timestart" : "09:00 AM","timestop" : "05:00 PM", "title": "Testing Log 10/18/20"}
   let entries = [{"files":["file"],"comments":["testing testing 1 2 3"],"tags":["testing"],"time": "2:37", "author":"operator"}]
 
@@ -245,7 +250,7 @@ function ViewLog(props){
               <Line/>
               </Row>
               <Row>
-                <LogPost data={data} entries={entries} />
+                <Log data={data} entries={entries} />
               </Row>
             </Container>
           </Col>
@@ -309,10 +314,7 @@ function header_exists(log){
   if(testing_config_entered==false){
     return false;
   }
-  if(glob_comp.length>0){
-    return true;
-  };
-  return false;
+  return true;
   $.ajax({
         type: "POST",
         url: "/header_exists",
@@ -331,23 +333,23 @@ function header_exists(log){
     });
 }
 
-function change_autocommit(value){
+function change_autocommit(log,value){
   return true
-  let log = "testing"
   $.ajax({
     type: "POST",
-    url: "/change_automcommit",
+    url: "/set_automcommit",
     dataType : "json",
     contentType: "application/json; charset=utf-8",
-    data : JSON.stringify(log),
+    data : JSON.stringify({"log":log,"value":value}),
     success: function(result){
-        return result["exists"]
+        return result["succ"]
     },
     error: function(request, status, error){
         console.log("Error");
         console.log(request)
         console.log(status)
         console.log(error)
+        return false
     }
 });
 }
@@ -355,7 +357,8 @@ function change_autocommit(value){
 class WriteToLog extends React.Component{
   constructor(props){
     super(props)
-    this.state = {log:props.log}
+    console.log(query)
+    this.state = {log:props.log, subsytem:query}
     //Has this log been written to?
     this.form = (<AppendForm log={"selected_log"} oldFiles={[]} comment={""}/>);
 
@@ -385,6 +388,39 @@ class WriteToLog extends React.Component{
   }
 }
 
+function addTestConfiguration(log,operator,name,pnames,pconfigs){
+  //window.location.reload(false);
+  query = {"log":log, "operator":operator, "files":files, name:"name", "pnames":pnames,"pconfigs":pconfigs}
+  //return;
+  $.ajax({
+    type: "POST",
+    url: "/get_log",
+    dataType : "json",
+    contentType: "application/json; charset=utf-8",
+    data : JSON.stringify(query),
+    success: function(result){
+        console.log("success")
+        let succ = result["successfullyWritten"]
+        if(succ){
+          window.location.reload(false);
+          return true;
+        }else{
+          testing_config_entered=false
+          sendAlert(false)
+          return false;
+        }
+    },
+    error: function(request, status, error){
+        sendAlert(false)
+        console.log("Error");
+        console.log(request)
+        console.log(status)
+        console.log(error)
+        return false;
+    }
+  })
+}
+
 
 function TestConfiguration(props) {
   const [validated, setValidated] = useState(false);
@@ -403,17 +439,24 @@ function TestConfiguration(props) {
       setValidated(false);
       let i = 0
       let operator = event.target.operator.value
+      let name = event.target.config_name.value
+      let pnames = []
+      let pconfigs = []
       let checked = [event.target.checked0.checked,event.target.checked1.checked,event.target.checked2.checked,event.target.checked3.checked,event.target.checked4.checked]
       let components = [event.target.component0.value, event.target.component1.value, event.target.component2.value, event.target.component3.value, event.target.component4.value]
       let numbers = [event.target.number0.value, event.target.number1.value, event.target.number2.value, event.target.number3.value, event.target.number4.value]
-      for(;i<5;i++){
+      for(let i=0; i<checked.length;i++){
         if(checked[i]){
-          //glob_comp.push(components[i])
-          //glob_nums.push(numbers[i])
+          pnames.push(components[i])
+          pconfigs.push(numbers[i])
         }
       }
-      testing_config_entered=true
-      ReactDOM.render(<AddLogEntry log={currentLog}/>, document.getElementById('root'));
+      if(addTestConfiguration(currentLog,operator,name,pnames,pconfigs)){
+        testing_config_entered= true;
+        ReactDOM.render(<AddLogEntry log={currentLog}/>, document.getElementById('root'));
+      }else{
+
+      }
     }
   };
 
@@ -501,7 +544,7 @@ function LogMenu(props){
 
     let text = testingConfigToTable(data["operator"],data["configname"],[],[],false)
     let title = data["title"]
-    let id = "0"
+    let id = ids[i]
     let updated = data["timestop"]
 
     let example = (<div>Header entry shown here.</div>);
@@ -534,7 +577,7 @@ function LogCard(props){
       <Card.Text>
         {props.text}
       </Card.Text>
-      <Card.Link href={"#/view/log/demo"}>View Log</Card.Link>
+      <Card.Link href={"#/view/log?" + props.id}>View Log</Card.Link>
     </Card.Body>
     <Card.Footer>
     <small className="text-muted">Last updated {props.updated}</small>
@@ -573,11 +616,11 @@ return(<div>
 
 
 function sendAlert(success){
-  if(success=true){
+  if(success==true){
     render(<Alert id="success" variant="success" dismissible>Success</Alert>,document.getElementById('empty'));
     setTimeout(() => {   render(<div/>,document.getElementById('empty')); }, 3000);
   }
-  if(success=false){
+  if(success==false){
     render(<Alert id="success" variant="warning" dismissible>Warning! Something went wrong!</Alert>,document.getElementById('empty'));
     setTimeout(() => {   render(<div/>,document.getElementById('empty')); }, 3000);
   }
@@ -586,7 +629,7 @@ function sendAlert(success){
 
 function AppendForm(props) {
   const [validated, setValidated] = useState(false);
-  let files = props.oldFiles
+  let oldFiles = props.oldFiles
   let comment = props.comment
   if(comment.length==0){
     comment = "Enter comment here"
@@ -606,18 +649,21 @@ function AppendForm(props) {
       event.preventDefault();
       event.stopPropagation();
       setValidated(false);
-      glob_entries.push((glob_user,files,event.target.comment.value))
-      files = []
-      form.reset()
-      console.log(files)
-      sendAlert(true)
+      console.log("bollocks")
+      appendEntry(currentLog, glob_user,files,event.target.comment.value,uploadedImages,false)
+      //window.location.reload(false);
+      //uploadedImages = []
+      //oldFiles = []
+      //form.reset()
+      //console.log(files)
     }
   };
+
 
   return (
     <div>
     <Form noValidate validated={validated} onSubmit={handleSubmit}>
-      <FileDrop oldFiles={[]} />
+      <FileDrop oldFiles={oldFiles} />
       <Form.Row>
         <Form.Group id="comment-input" as={Col} md="12" controlId="validationCustom01">
           <Form.Control
@@ -636,6 +682,39 @@ function AppendForm(props) {
   );
 }
 
+function appendEntry(log,author,files,comment,images,isAppended){
+
+  //window.location.reload(false);
+  query = {"log":log, "author":author, "files":files, comment:"comment", "images":images,"isAppended":isAppended}
+  //return;
+  $.ajax({
+    type: "POST",
+    url: "/get_log",
+    dataType : "json",
+    contentType: "application/json; charset=utf-8",
+    data : JSON.stringify(query),
+    success: function(result){
+        console.log("success")
+        let succ = result["successfullyWritten"]
+        if(succ){
+          files = []
+          uploadedImages = []
+          window.location.reload(false);
+        }else{
+          sendAlert(false)
+        }
+    },
+    error: function(request, status, error){
+        sendAlert(false)
+        console.log("Error");
+        console.log(request)
+        console.log(status)
+        console.log(error)
+    }
+  })
+
+}
+
 function AutosaveLog(props) {
   const [checked, setChecked] = useState(false);
   const [radioValue, setRadioValue] = useState(props.value);
@@ -647,8 +726,16 @@ function AutosaveLog(props) {
 
   function changeAutoSave(val){
     console.log(val)
-    if(val==0 || val==1){
-      setRadioValue(val)
+
+    let success = change_autocommit(currentLog,val)
+
+    if(success){
+      if(val==0 || val==1){
+        setRadioValue(val)
+      }
+      sendAlert(true)
+    }else{
+      sendAlert(false)
     }
   }
 
@@ -706,14 +793,23 @@ class LogDropdownBox extends React.Component{
 }
 
 function SubsystemDropdownBox(props){
+  let selection = "None"
+  console.log(query.length)
+  if(query.length>1){
+    selection=query.slice(0,1).toUpperCase() + query.slice(1)
+  }
+  let items = []
+  for(let i=0; i<glob_subsystems.length; i++){
+  items.push(<Dropdown.Item href={rootUrl + "?" + glob_subsystems[i]}>{glob_subsystems[i]}</Dropdown.Item>)
+  }
   return(
     <Dropdown>
       <span>Subsystem: </span>
       <Dropdown.Toggle variant="secondary" id="dropdown-basic">
-        None
+        {selection}
       </Dropdown.Toggle>
       <Dropdown.Menu>
-        <Dropdown.Item href="#/test">Test</Dropdown.Item>
+        {items}
       </Dropdown.Menu>
     </Dropdown>
   );
@@ -730,7 +826,9 @@ class ManualSave extends React.Component{
   }
 
   handleChange(){
-    console.log('manual save button bressed')
+    console.log('manual save button pressed')
+    let success = manualSave(currentLog, this.id)
+    sendAlert(success)
   }
 
   render(){
@@ -738,6 +836,27 @@ class ManualSave extends React.Component{
       <Button variant="light" onClick={() => this.handleChange()}>Manual Commit</Button>
     );
   }
+}
+
+function manualSave(log,id){
+  return true
+  $.ajax({
+    type: "POST",
+    url: "/get_log",
+    dataType : "json",
+    contentType: "application/json; charset=utf-8",
+    data : JSON.stringify({"log":log,"id":id}),
+    success: function(result){
+        return result["succ"]
+    },
+    error: function(request, status, error){
+        console.log("Error");
+        console.log(request)
+        console.log(status)
+        console.log(error)
+        return false
+    }
+  })
 }
 
 class GenericButton extends React.Component{
@@ -912,12 +1031,6 @@ async function myCustomFileGetter(event) {
   }
 
   return files;
-}
-
-function sendFileC(file){
-  let m = 'localhost:4000'
-  let a = new URL(m)
-  let url = new File([file],"localhost:4000/test/test.png")
 }
 
 
