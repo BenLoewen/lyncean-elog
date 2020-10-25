@@ -179,8 +179,8 @@ function Entries(props){
 }
 
 function getLogData(id){
-  let data = {"operator": "Rod L", "configname" : "High Power RF Test", "comps" : ["Structures","Loads"], "specs" : ["####","####"], "timestart" : "09:00 AM","timestop" : "05:00 PM", "title": "Testing Log 10/18/20"}
-  return data
+  //let data = {"operator": "Rod L", "configname" : "High Power RF Test", "comps" : ["Structures","Loads"], "specs" : ["####","####"], "timestart" : "09:00 AM","timestop" : "05:00 PM", "title": "Testing Log 10/18/20"}
+  //return data
   $.ajax({
     type: "POST",
     url: "/get_log",
@@ -222,8 +222,8 @@ function getLogEntries(id){
 function ViewLog(props){
   let id = query
   console.log(id)
-  //let data = getLogData(id)
-  //let entries = getLogEntries(id)
+  let data = getLogData(id)
+  let entries = getLogEntries(id)
   let data = {"operator": "Rod L", "configname" : "High Power RF Test", "comps" : ["Structures","Loads"], "specs" : ["####","####"], "timestart" : "09:00 AM","timestop" : "05:00 PM", "title": "Testing Log 10/18/20"}
   let entries = [{"files":["file"],"comments":["testing testing 1 2 3"],"tags":["testing"],"time": "2:37", "author":"operator"}]
 
@@ -260,7 +260,7 @@ function ViewLog(props){
 }
 
 function getRecentLogIds(){
-  return [0]
+  //return [0]
   $.ajax({
     type: "POST",
     url: "/get_recent",
@@ -310,11 +310,11 @@ function RecentLogs(props){
 
 
 function header_exists(log){
-  console.log(testing_config_entered)
-  if(testing_config_entered==false){
-    return false;
-  }
-  return true;
+  //console.log(testing_config_entered)
+  //if(testing_config_entered==false){
+  //  return false;
+  //}
+  //return true;
   $.ajax({
         type: "POST",
         url: "/header_exists",
@@ -334,7 +334,7 @@ function header_exists(log){
 }
 
 function change_autocommit(log,value){
-  return true
+  //return true
   $.ajax({
     type: "POST",
     url: "/set_automcommit",
@@ -839,7 +839,7 @@ class ManualSave extends React.Component{
 }
 
 function manualSave(log,id){
-  return true
+  //return true
   $.ajax({
     type: "POST",
     url: "/get_log",
