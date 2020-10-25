@@ -13,7 +13,7 @@ cursor = None
 db = None
 curr_entryId = 0
 curr_appendedId = 0
-logIds = {"Electronics":1}
+logIds = {"electronics":1}
 database_path = 'data/elog'
 
 #All database functions
@@ -29,7 +29,7 @@ def createDatabase():
   openDatabase()
   print("setting up the database...")
   cursor.execute('''
-    CREATE TABLE log(id INTEGER PRIMARY KEY, title TEXT,
+    CREATE TABLE log(id INTEGER PRIMARY KEY, title TEXT, logtype TEXT,
                       committed TEXT, header INTEGER)
   ''')
   print("created table: log")
@@ -59,7 +59,7 @@ def createDatabase():
   ''')
   print("created table: appended")
   cursor.execute('''
-    CREATE TABLE test(operator TEXT, name TEXT, entry INTEGER)
+    CREATE TABLE test(operator TEXT, name TEXT, entry INTEGER, time DATETIME)
   ''')
   print("created table: test")
   cursor.execute('''
@@ -136,7 +136,7 @@ def commitLog(id,log):
   now = datetime.now()
   #Commit old log
   date_time = now.strftime("%Y/%m/%d, %H:%M:%S")
-  update = "UPDATE log SET submitted=? WHERE id=?;"
+  update = "UPDATE log SET committed=? WHERE id=?;"
   data_tuple = (date_time,id)
   cursor.execute(update,data_tuple)
   numCommits = getNumCommits(log)
@@ -148,10 +148,10 @@ def commitLog(id,log):
   date = now.strftime("%Y/%m/%d")
   id = date_id + str(logIds[log]) + str(numCommits)
   insert = '''
-            INSERT INTO LOG (TITLE,ID,COMMITTED,HEADER)
-            VALUES (?, ?, NULL, NULL);
+            INSERT INTO log (TITLE,ID,LOGTYPE,COMMITTED,HEADER)
+            VALUES (?, ?, ?, NULL, NULL);
             '''
-  data_tuple = (log + " Log " + date + "(" + str(numCommits) + ")", int(id))
+  data_tuple = (log + " Log " + date + "(" + str(numCommits) + ")", int(id),log)
   cursor.execute(insert, data_tuple)
   commitDatabase()
 
@@ -171,13 +171,15 @@ def headerExists(logId):
   global cursor
   select = "SELECT header FROM log WHERE id =?;"
   for row in cursor.execute(select,[logId]):
+    print(row[0])
     return row[0]=='NULL'
+  print("Error! Checking if header exists for log with ID that does not exist!")
+  return False
 
 def getNumCommits(log):
   select = "SELECT numcommits FROM commits WHERE logtype =?;"
   for row in cursor.execute(select,[log]):
-    print(row)
-    return row
+    return row[0]
 
 def addEntry(author,log):
   global cursor
@@ -188,16 +190,16 @@ def addEntry(author,log):
   date_time = now.strftime("%Y/%m/%d, %H:%M:%S")
   #Get ID of log
   numcommits = getNumCommits(log)
-  logId = int(now.strftime("%Y%m%d")) + str(logIds[log]) + str(numcommits)
+  logId = now.strftime("%Y%m%d") + str(logIds[log]) + str(numcommits)
   #Get ID of entry
-  entryId = int(now.strftime("%Y%m%d")) + curr_entryId
+  entryId = now.strftime("%Y%m%d") + str(curr_entryId)
   curr_entryId+=1
   #Insert entry into database
   insert = '''
           INSERT INTO ENTRY (SUBMITTED,AUTHOR,LOG,ID,TYPE)
           VALUES (?, ?, ?, ?, ?);
           '''
-  data_tuple = (date_time, author, logId, entryId, log)
+  data_tuple = (date_time, author, int(logId), int(entryId), log)
   cursor.execute(insert, data_tuple)
   print("inserted new entry into entry table")
   return entryId,logId
@@ -220,10 +222,12 @@ def addTestConfiguration(log,operator,name,pnames,pconfigs):
 def addTest(operator,name,entry):
   global cursor
   insert = '''
-          INSERT INTO TEST (OPERATOR,NAME,ENTRY)
-          VALUES (?, ?, ?);
+          INSERT INTO TEST (OPERATOR,NAME,ENTRY,TIME)
+          VALUES (?, ?, ?, ?);
           '''
-  data_tuple = (operator, name, entry)
+  now = datetime.now()
+  date_time = now.strftime("%Y/%m/%d, %H:%M:%S")
+  data_tuple = (operator, name, entry,date_time)
   cursor.execute(insert, data_tuple)
   print("inserted configuration into test table")
 
@@ -270,7 +274,8 @@ def addAppendedStamp(author):
 
 def addFile(f,log,entryId,appendedId):
   global cursor
-  path = saveFile(f,log)
+  #path = saveFile(f,log)
+  path = f
   insert = '''
           INSERT INTO FILE (PATH,ENTRY,APPENDED)
           VALUES (?, ?, ?);
@@ -329,15 +334,18 @@ def getRecentLogData():
   global cursor
   ids = []
 
-  end_date_id = now.strftime("%Y%m%d")
-  start_date_id = datetime.today() - timedelta(days=7)
-  start_id = start_date_id + "00"
-  end_id = end_date_id + "00"
+  end_date = datetime.today() + timedelta(days=1)
+  start_date = datetime.today() - timedelta(days=7)
+  start_id = start_date.strftime("%Y%m%d") + "00"
+  end_id = end_date.strftime("%Y%m%d") + "00"
 
-  for row in cursor.execute('SELECT id FROM log WHERE submitted IS NULL AND header IS NOT NULL'):
+  for row in cursor.execute('SELECT id FROM log WHERE committed IS NULL AND header IS NOT NULL'):
     ids.append(row[0])
 
-  for row in cursor.execute('SELECT id FROM log WHERE submitted IS NOT NULL AND id>=? AND ?>=id;',(start_id,end_id))
+  print(start_id)
+  print(end_id)
+
+  for row in cursor.execute('SELECT id FROM log WHERE committed IS NOT NULL AND id>=? AND ?>=id;',(start_id,end_id)):
     ids.append(row[0])
 
   return ids
@@ -347,15 +355,16 @@ def getLogData(logId):
   entryId = None
   log_info = {}
   for row in cursor.execute('SELECT * FROM LOG WHERE ID=?;',[logId]):
-    entryId = row[0]
+    entryId = row[4]
     log_info["title"] = row[1]
+  if entryId is None:
+    print("error getting log data. seems the log being received does not exist")
   for row in cursor.execute('SELECT * FROM test WHERE entry=?;',[entryId]):
     log_info["operator"] = row[0]
     log_info["configname"] = row[1]
-  for row in cursor.execute('SELECT MAX(submitted) FROM entry WHERE log=?;', [entryId])
+    log_info["timestart"] = row[3]
+  for row in cursor.execute('SELECT MAX(submitted) FROM entry WHERE log=?;', [logId]):
     log_info["timestop"] = row[0]
-  for row in cursor.execute('SELECT MIN(submitted) FROM entry WHERE log=?;', [entryId])
-    log_info["timestart"] = row[0]
   log_info["comps"] = []
   log_info["specs"] = []
   for row in cursor.execute('SELECT pname,pconfig FROM part WHERE name=?;', [log_info["configname"]]):
@@ -367,19 +376,19 @@ def getEntries(logId):
   global cursor
   entries = []
   #entry = (files,comments,tags)
-  for row in cursor.execute('SELECT * FROM ENTRY WHERE LOG=? ORDER;',logId):
+  for row in cursor.execute('SELECT * FROM entry WHERE log=? ORDER By submitted;',[logId]):
     entry = {}
     id = row[0]
     entry["author"] = row[2]
     entry["time"] = row[4]
     entry["files"] = []
-    for row in cursor.execute('SELECT path FROM file WHERE entry=?;',id):
+    for row in cursor.execute('SELECT path FROM file WHERE entry=?;',[id]):
       entry["files"].append(row[0])
     entry["comments"] = []
-    for row in cursor.execute('SELECT text FROM comment WHERE entry=?;',id):
+    for row in cursor.execute('SELECT text FROM comment WHERE entry=?;',[id]):
       entry["comments"].append(row[0])
     entry["tags"] = []
-    for row in cursor.execute('SELECT tag FROM tags WHERE entry=?;',id):
+    for row in cursor.execute('SELECT tag FROM tag WHERE entry=?;',[id]):
       entry["tags"].append(row[0])
 
     entries.append(entry)
@@ -536,21 +545,24 @@ def header_exists():
   print("received request to know if header exists")
   print('...')
 
-  log = query["log"]
-  does = True
-  #Get time
-  now = datetime.now()
-  date_time = now.strftime("%Y/%m/%d, %H:%M:%S")
-  #Get ID of log
-  numcommits = getNumCommits(log)
-  logId = int(now.strftime("%Y%m%d") + str(logIds[log]) + str(numcommits))
-  #Check whether header exists
-  doesExist = headerExists(logId)
+  try:
+    log = query["log"]
+    does = True
+    #Get time
+    now = datetime.now()
+    date_time = now.strftime("%Y/%m/%d, %H:%M:%S")
+    #Get ID of log
+    numcommits = getNumCommits(log)
+    logId = int(now.strftime("%Y%m%d") + str(logIds[log]) + str(numcommits))
+    #Check whether header exists
+    doesExist = headerExists(logId)
+  except:
+    print("unsuccessful attempt to check if header exists")
 
   return jsonify(exists = doesExist)
 
 @app.route('/get_config', methods=['GET', 'POST'])
-def header_exists():
+def get_config():
   json_data = request.get_json()
   query = json_data["query"]
   name = query["name"]
@@ -562,7 +574,7 @@ def header_exists():
   try:
     configs = getConfigsFromDatabase()
   except:
-    print("unsuccessful attempt to retrieve configs)
+    print("unsuccessful attempt to retrieve configs")
     print("...")
 
 
@@ -577,7 +589,7 @@ def getConfigFromDatabase(name):
   return configs
 
 @app.route('/get_configs', methods=['GET', 'POST'])
-def header_exists():
+def get_configs():
   json_data = request.get_json()
   query = json_data["query"]
   configs = {}
@@ -588,7 +600,7 @@ def header_exists():
   try:
     configs = getConfigsFromDatabase()
   except:
-    print("unsuccessful attempt to retrieve configs)
+    print("unsuccessful attempt to retrieve configs")
     print("...")
 
   return jsonify(configs = configs)
@@ -625,5 +637,4 @@ if __name__ == '__main__':
     setUpDatabase()
   else:
     createDatabase()
-  configs =
   app.run(port=int("4000"), debug = True)

@@ -9,7 +9,7 @@ app = Flask(__name__)
 
 cursor = None
 db = None
-logIds = {"Electronics":1}
+logIds = {"electronics":1}
 
 
 def openDatabase():
@@ -30,13 +30,19 @@ def autocommitLogs():
   global db
   global logIds
   autocommitLog = {}
+  now = datetime.now()
+  date_time = now.strftime("%Y/%m/%d, %H:%M:%S")
   for log in logIds:
     select = "SELECT shouldcommit FROM autocommit WHERE logtype =?"
     for row in cursor.execute(select, [log]):
       shouldCommit = row[0]
+      autocommitLog[log] = shouldCommit
       if shouldCommit:
-        update = "UPDATE log SET committed=? WHERE logtype=? AND comitted=NULL;"
-        data_tuple = (committed=)
+        update = "UPDATE log SET committed=? WHERE logtype=? AND committed=NULL;"
+        data_tuple = (date_time,log)
+        cursor.execute(update,data_tuple)
+  db.commit()
+  return autocommitLog
 
 def resetCommits():
   global cursor
