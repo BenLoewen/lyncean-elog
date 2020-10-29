@@ -94,15 +94,22 @@ def openDatabase():
   print("database ready to use")
   print("...")
 
+def getCursor():
+  db = sqlite3.connect(':memory:')
+  db = sqlite3.connect(database_path)
+  cursor = db.cursor()
+  return cursor,db
+
 def closeDatabase():
-  global cursor
   global db
-  commitDatabase()
   db.close()
   print("closed database.")
 
 def setUpDatabase():
-  global cursor
+  global db
+  db = sqlite3.connect(':memory:')
+  db = sqlite3.connect(database_path)
+  cursor = db.cursor()
   time.sleep(.300)
   openDatabase()
   fetchIds()
@@ -113,7 +120,7 @@ def commitDatabase():
   print("changes committed")
 
 def fetchIds():
-  global cursor
+  cursor,db = getCursor()
   global curr_appendedId
   global curr_entryId
   select = "SELECT MAX(id) FROM log;"
@@ -127,17 +134,21 @@ def fetchIds():
   for row in cursor.execute(select):
     max_id = row[0]
     if max_id is None:
-      curr_entryId = 0
+      curr_appendedId = 0
     else:
-      curr_entryId = int(max_id) + 1
+      curr_appendedId = int(max_id) + 1
+  print(curr_entryId)
 
-def commitLog(id,log):
-  global cursor
+def commitLog(log):
+  cursor,db = getCursor()
   now = datetime.now()
+  #Get ID of log
+  numcommits = getNumCommits(log)
+  logId = now.strftime("%Y%m%d") + str(logIds[log]) + str(numcommits)
   #Commit old log
   date_time = now.strftime("%Y/%m/%d, %H:%M:%S")
   update = "UPDATE log SET committed=? WHERE id=?;"
-  data_tuple = (date_time,id)
+  data_tuple = (date_time,logId)
   cursor.execute(update,data_tuple)
   numCommits = getNumCommits(log)
   update2 = "UPDATE commits SET numcommits=?;"
@@ -153,38 +164,44 @@ def commitLog(id,log):
             '''
   data_tuple = (log + " Log " + date + "(" + str(numCommits) + ")", int(id),log)
   cursor.execute(insert, data_tuple)
-  commitDatabase()
+  db.commit()
 
 def changeAutoCommit(log,value):
-  global cursor
+  global db
+  cursor,db = getCursor()
   update = "UPDATE autocommit SET shouldcommit=? WHERE logtype=?;"
   cursor.execute(update,[value,log])
-  commitDatabase()
+  db.commit()
+  print('Updated autocommit')
 
 def getAutoCommit(log):
-  global cursor
-  select = "SELECT shouldcommit FROM autocommit WHERE logtype=?"
+  global db
+  cursor,db = getCursor()
+  select = 'SELECT shouldcommit FROM autocommit WHERE logtype=?'
   for row in cursor.execute(select,[log]):
     return row[0]
 
 def headerExists(logId):
-  global cursor
-  select = "SELECT header FROM log WHERE id =?;"
+  cursor,db = getCursor()
+  select = 'SELECT header FROM log WHERE id =?;'
+  print(logId)
   for row in cursor.execute(select,[logId]):
-    print(row[0])
-    return row[0]=='NULL'
+    if row[0] is None:
+      return False
+    else:
+      return True
   print("Error! Checking if header exists for log with ID that does not exist!")
   return False
 
 def getNumCommits(log):
-  select = "SELECT numcommits FROM commits WHERE logtype =?;"
+  cursor,db = getCursor()
+  select = 'SELECT numcommits FROM commits WHERE logtype =?;'
   for row in cursor.execute(select,[log]):
     return row[0]
 
 def addEntry(author,log):
-  global cursor
+  cursor,db = getCursor()
   global curr_entryId
-  global db
   #Get time
   now = datetime.now()
   date_time = now.strftime("%Y/%m/%d, %H:%M:%S")
@@ -192,8 +209,8 @@ def addEntry(author,log):
   numcommits = getNumCommits(log)
   logId = now.strftime("%Y%m%d") + str(logIds[log]) + str(numcommits)
   #Get ID of entry
-  entryId = now.strftime("%Y%m%d") + str(curr_entryId)
   curr_entryId+=1
+  entryId = str(curr_entryId)
   #Insert entry into database
   insert = '''
           INSERT INTO ENTRY (SUBMITTED,AUTHOR,LOG,ID,TYPE)
@@ -201,10 +218,12 @@ def addEntry(author,log):
           '''
   data_tuple = (date_time, author, int(logId), int(entryId), log)
   cursor.execute(insert, data_tuple)
+  db.commit()
   print("inserted new entry into entry table")
   return entryId,logId
 
 def addTestConfiguration(log,operator,name,pnames,pconfigs):
+  cursor,db = getCursor()
   entryId,logId = addEntry(operator,log)
   addTest(operator,name,entryId)
   for i in range(len(pnames)):
@@ -215,12 +234,12 @@ def addTestConfiguration(log,operator,name,pnames,pconfigs):
           WHERE id=?;
           '''
   cursor.execute(insert,(entryId,logId))
-  commitDatabase()
+  db.commit()
   print("updated header with test configuration")
 
 
 def addTest(operator,name,entry):
-  global cursor
+  cursor,db = getCursor()
   insert = '''
           INSERT INTO TEST (OPERATOR,NAME,ENTRY,TIME)
           VALUES (?, ?, ?, ?);
@@ -229,20 +248,21 @@ def addTest(operator,name,entry):
   date_time = now.strftime("%Y/%m/%d, %H:%M:%S")
   data_tuple = (operator, name, entry,date_time)
   cursor.execute(insert, data_tuple)
+  db.commit()
   print("inserted configuration into test table")
 
 def addPart(name,pname,pconfig):
-  global cursor
+  cursor,db = getCursor()
   insert = '''
           INSERT INTO PART (NAME,PNAME,PCONFIG)
           VALUES (?, ?, ?);
           '''
   data_tuple = (name,pname,pconfig)
   cursor.execute(insert, data_tuple)
+  db.commit()
   print("inserted part configuration")
 
 def addLogPost(log, author, comment, files, images, tags, isAppended):
-  global db
   entryId,logId = addEntry(author,log)
   #Add post data to databse
   appendedId = 0
@@ -255,10 +275,9 @@ def addLogPost(log, author, comment, files, images, tags, isAppended):
     addImage(img,log,entryId,appendedId)
   for tag in tags:
     addTag(tag,entryId)
-  commitDatabase()
 
 def addAppendedStamp(author):
-  global cursor
+  cursor,db = getCursor()
   global curr_appendedId
   now = datetime.now()
   date_time = now.strftime("%Y/%m/%d, %H:%M:%S")
@@ -270,10 +289,11 @@ def addAppendedStamp(author):
           '''
   data_tuple = (appendedId, date_time, author)
   cursor.execute(insert, data_tuple)
+  db.commit()
   print("inserted appended stamp")
 
 def addFile(f,log,entryId,appendedId):
-  global cursor
+  cursor,db = getCursor()
   #path = saveFile(f,log)
   path = f
   insert = '''
@@ -282,6 +302,7 @@ def addFile(f,log,entryId,appendedId):
           '''
   data_tuple = (path,entryId,appendedId)
   cursor.execute(insert, data_tuple)
+  db.commit()
   print("inserted new file into file table")
 
 def saveFile(f,log):
@@ -299,7 +320,7 @@ def saveFile(f,log):
   return paths
 
 def addImage(img,log,entryId,appendedId):
-  global cursor
+  cursor,db = getCursor()
   path = saveFile(img,log)
   insert = '''
           INSERT INTO IMAGE (URL,ENTRY,APPENDED)
@@ -307,31 +328,35 @@ def addImage(img,log,entryId,appendedId):
           '''
   data_tuple = (path,entryId,appendedId)
   cursor.execute(insert, data_tuple)
+  db.commit()
   print("inserted new image into image table")
 
 def addComment(text,entryId,appendedId):
-  global cursor
+  cursor,db = getCursor()
   insert = '''
           INSERT INTO COMMENT (TEXT,ENTRY,APPENDED)
           VALUES (?, ?, ?);
           '''
+  print(text)
   data_tuple = (text,entryId,appendedId)
   cursor.execute(insert, data_tuple)
+  db.commit()
   print("inserted new comment into comment table")
 
 def addTag(tag,entryId):
-  global cursor
+  cursor,db = getCursor()
   #tag(entry INTEGER, tag TEXT)
   insert = '''
           INSERT INTO tag (ENTRY,TAG)
           VALUES (?, ?);
           '''
-  data_tuple = (text,entryId)
+  data_tuple = (tag,entryId)
   cursor.execute(insert, data_tuple)
+  db.commit()
   print("inserted new tag into tag table")
 
 def getRecentLogData():
-  global cursor
+  cursor,db = getCursor()
   ids = []
 
   end_date = datetime.today() + timedelta(days=1)
@@ -351,9 +376,9 @@ def getRecentLogData():
   return ids
 
 def getLogData(logId):
-  global cursor
+  cursor,db = getCursor()
   entryId = None
-  log_info = {}
+  log_info = {"configname":"No Configuration Entered"}
   for row in cursor.execute('SELECT * FROM LOG WHERE ID=?;',[logId]):
     entryId = row[4]
     log_info["title"] = row[1]
@@ -373,10 +398,12 @@ def getLogData(logId):
   return log_info
 
 def getEntries(logId):
-  global cursor
+  print(logId)
+  cursor,db = getCursor()
   entries = []
   #entry = (files,comments,tags)
-  for row in cursor.execute('SELECT * FROM entry WHERE log=? ORDER By submitted;',[logId]):
+  for row in cursor.execute('SELECT * FROM entry WHERE log=? ORDER BY submitted;',[logId]):
+    print(row)
     entry = {}
     id = row[0]
     entry["author"] = row[2]
@@ -402,8 +429,7 @@ def getEntries(logId):
 
 @app.route('/add_entry', methods=['POST'])
 def add_entry():
-  json_data = request.get_json()
-  query = json_data["query"]
+  query = request.get_json()
 
   print("received request to add entry")
   print("...")
@@ -417,6 +443,12 @@ def add_entry():
   isAppended = query["isAppended"]
   success = None
 
+  addLogPost(log, author, comment, files, images, tags, isAppended)
+  print("succesfully added entry to " + log)
+  print("...")
+  success=True
+
+  '''
   try:
     addLogPost(log, author, files, comment,images,tags,isAppended)
     print("succesfully added entry to " + log)
@@ -426,14 +458,14 @@ def add_entry():
     print("unsuccessful attempt to add entry to " + log)
     print("...")
     success=False
+  '''
 
   return jsonify(successfullyWritten = success)
 
 
 @app.route('/add_config', methods=['POST'])
 def add_config():
-  json_data = request.get_json()
-  query = json_data["query"]
+  query = request.get_json()
 
   print("received request to add entry")
   print("...")
@@ -455,30 +487,26 @@ def add_config():
     print("...")
     success=False
 
+
   return jsonify(successfullyWritten = success)
 
-@app.route('/get_log', methods=['GET'])
-def get_log():
-  json_data = request.get_json()
-  query = json_data["query"]
+@app.route('/get_log/<id>', methods=['GET'])
+def get_log(id=None):
+  returnData = {}
+  #try:
+  returnData = getLogData(id)
+  #except:
+  #  print("Unsucessful attempt to retrieve log: " + str(id))
 
-  id = query["id"]
+  print('yahoo')
+  print(returnData)
 
-  try:
-    returnData = getLogData(id)
-  except:
-    print("Unsucessful attempt to retrieve log: " + str(id))
+  return jsonify(data = returnData)
 
-  return jsonify(returnData = returnData)
-
-@app.route('/get_entries', methods=['GET'])
-def get_entries():
-  json_data = request.get_json()
-  query = json_data["query"]
-
-  id = query["id"]
-  entries = getEntries()
-
+@app.route('/get_entries/<id>', methods=['GET'])
+def get_entries(id=None):
+  entries = getEntries(id)
+  print(entries)
   return jsonify(entries = entries)
 
 @app.route('/get_recent', methods=['GET'])
@@ -488,11 +516,12 @@ def get_recent():
 
 @app.route('/set_autocommit', methods=['POST'])
 def set_autocommit():
-  json_data = request.get_json()
-  query = json_data["query"]
+  query = request.get_json()
 
   log = query["log"]
   value = query["value"]
+
+  succ = False
 
   try:
     changeAutoCommit(log,value)
@@ -505,8 +534,7 @@ def set_autocommit():
 
 @app.route('/get_autocommit', methods=['GET'])
 def get_autocommit():
-  json_data = request.get_json()
-  query = json_data["query"]
+  query = request.get_json()
 
   log = query["log"]
 
@@ -521,14 +549,12 @@ def get_autocommit():
 
 @app.route('/commit_log', methods=['POST'])
 def commit_log():
-  json_data = request.get_json()
-  query = json_data["query"]
+  query = request.get_json()
 
   log = query["log"]
-  id = query["id"]
 
   try:
-    commitLog(id,log)
+    commitLog(log)
     succ = True
   except:
     print("unsuccessful attempt to get autocommit")
@@ -539,32 +565,33 @@ def commit_log():
 
 @app.route('/header_exists', methods=['GET', 'POST'])
 def header_exists():
-  json_data = request.get_json()
-  query = json_data["query"]
+  query = request.get_json()
 
   print("received request to know if header exists")
   print('...')
+  doesExist = False
 
-  try:
-    log = query["log"]
-    does = True
-    #Get time
-    now = datetime.now()
-    date_time = now.strftime("%Y/%m/%d, %H:%M:%S")
-    #Get ID of log
-    numcommits = getNumCommits(log)
-    logId = int(now.strftime("%Y%m%d") + str(logIds[log]) + str(numcommits))
-    #Check whether header exists
-    doesExist = headerExists(logId)
-  except:
-    print("unsuccessful attempt to check if header exists")
+  #try:
+  log = query['log']
+  does = True
+  #Get time
+  now = datetime.now()
+  date_time = now.strftime("%Y/%m/%d, %H:%M:%S")
+  #Get ID of log
+  print(log)
+  numcommits = getNumCommits(log)
+  logId = int(now.strftime("%Y%m%d") + str(logIds[log]) + str(numcommits))
+  #Check whether header exists
+  doesExist = headerExists(logId)
+  #except:
+  #  print("unsuccessful attempt to check if header exists")
 
   return jsonify(exists = doesExist)
 
 @app.route('/get_config', methods=['GET', 'POST'])
 def get_config():
-  json_data = request.get_json()
-  query = json_data["query"]
+  query = request.get_json()
+
   name = query["name"]
   configs = {}
 
@@ -581,7 +608,7 @@ def get_config():
   return jsonify(configs = configs)
 
 def getConfigFromDatabase(name):
-  global cursor
+  cursor,db = getCursor()
   configs = []
   select = "SELECT * FROM part WHERE name=?;"
   for row in cursor.execute(select,name):
@@ -590,8 +617,8 @@ def getConfigFromDatabase(name):
 
 @app.route('/get_configs', methods=['GET', 'POST'])
 def get_configs():
-  json_data = request.get_json()
-  query = json_data["query"]
+  query = request.get_json()
+
   configs = {}
 
   print("received request to get configs")
@@ -612,7 +639,8 @@ def loadConfigs():
 
 
 def getConfigsFromDatabase():
-  global cursor
+
+  cursor,db = getCursor()
   configs = {}
   select = "SELECT * FROM part;"
   for row in cursor.execute(select):
