@@ -46,6 +46,7 @@ let query = ""
 let testing_config_entered = true;
 let currentLog = ""
 let rootUrl = ""
+let headerExists = {}
 
 //THESE ARE TEMPORARY AND SHOULD BE REMOVED WHEN APP INTEGRATED IN FLASK SERVER
 let glob_user = "operator"
@@ -182,9 +183,10 @@ function getLogData(id){
   //let data = {"operator": "Rod L", "configname" : "High Power RF Test", "comps" : ["Structures","Loads"], "specs" : ["####","####"], "timestart" : "09:00 AM","timestop" : "05:00 PM", "title": "Testing Log 10/18/20"}
   //return data
   $.ajax({
-    type: "POST",
+    type: "GET",
     url: "/get_log",
     dataType : "json",
+    async: false,
     contentType: "application/json; charset=utf-8",
     data : JSON.stringify({"id":id}),
     success: function(result){
@@ -204,6 +206,7 @@ function getLogEntries(id){
     type: "POST",
     url: "/get_entries",
     dataType : "json",
+    async: false,
     contentType: "application/json; charset=utf-8",
     data : JSON.stringify({"id":id}),
     success: function(result){
@@ -222,11 +225,43 @@ function getLogEntries(id){
 function ViewLog(props){
   let id = query
   console.log(id)
-  let data = getLogData(id)
-  let entries = getLogEntries(id)
-  let data = {"operator": "Rod L", "configname" : "High Power RF Test", "comps" : ["Structures","Loads"], "specs" : ["####","####"], "timestart" : "09:00 AM","timestop" : "05:00 PM", "title": "Testing Log 10/18/20"}
-  let entries = [{"files":["file"],"comments":["testing testing 1 2 3"],"tags":["testing"],"time": "2:37", "author":"operator"}]
-
+  //let data = getLogData(id)
+  //let entries = getLogEntries(id)
+  let data = {}
+  let entries = []
+  $.ajax({
+    type: "GET",
+    url: "/get_log/" + id,
+    dataType : "json",
+    async: false,
+    contentType: "application/json; charset=utf-8",
+    success: function(result){
+        data = result["data"]
+    },
+    error: function(request, status, error){
+        console.log("Error");
+        console.log(request)
+        console.log(status)
+        console.log(error)
+    }
+  })
+  $.ajax({
+    type: "GET",
+    url: "/get_entries/" + id,
+    dataType : "json",
+    async: false,
+    contentType: "application/json; charset=utf-8",
+    success: function(result){
+        entries = result["entries"]
+    },
+    error: function(request, status, error){
+        console.log("Error");
+        console.log(request)
+        console.log(status)
+        console.log(error)
+    }
+  })
+  console.log(entries)
 
   function handleChange(){
     window.location.href = "#/view/recent-logs"
@@ -262,11 +297,13 @@ function ViewLog(props){
 function getRecentLogIds(){
   //return [0]
   $.ajax({
-    type: "POST",
+    type: "GET",
     url: "/get_recent",
     dataType : "json",
+    async: false,
     contentType: "application/json; charset=utf-8",
     success: function(result){
+        console.log(result["ids"])
         return result["ids"]
     },
     error: function(request, status, error){
@@ -274,6 +311,7 @@ function getRecentLogIds(){
         console.log(request)
         console.log(status)
         console.log(error)
+        return []
     }
   })
 }
@@ -319,16 +357,24 @@ function header_exists(log){
         type: "POST",
         url: "/header_exists",
         dataType : "json",
+        async: false,
         contentType: "application/json; charset=utf-8",
-        data : JSON.stringify(log),
+        data : JSON.stringify({"log":log}),
         success: function(result){
-            return result["exists"]
+            var header = result["exists"]
+            console.log(header)
+            if(header){
+              console.log(header.toString())
+              return true
+            }
+            return false
         },
         error: function(request, status, error){
             console.log("Error");
             console.log(request)
             console.log(status)
             console.log(error)
+            return false
         }
     });
 }
@@ -337,7 +383,7 @@ function change_autocommit(log,value){
   //return true
   $.ajax({
     type: "POST",
-    url: "/set_automcommit",
+    url: "/set_autocommit",
     dataType : "json",
     contentType: "application/json; charset=utf-8",
     data : JSON.stringify({"log":log,"value":value}),
@@ -357,13 +403,37 @@ function change_autocommit(log,value){
 class WriteToLog extends React.Component{
   constructor(props){
     super(props)
-    console.log(query)
     this.state = {log:props.log, subsytem:query}
     //Has this log been written to?
     this.form = (<AppendForm log={"selected_log"} oldFiles={[]} comment={""}/>);
 
-    if(header_exists(props.log)==false){
+    let header = false;
+
+    $.ajax({
+      type: "POST",
+      url: "/header_exists",
+      dataType : "json",
+      async: false,
+      contentType: "application/json; charset=utf-8",
+      data : JSON.stringify({"log":currentLog}),
+      success: function(result){
+          header = result["exists"]
+      },
+      error: function(request, status, error){
+          console.log("Error");
+          console.log(request)
+          console.log(status)
+          console.log(error)
+      }
+  });
+
+
+    console.log(header)
+
+    if(header===false){
       this.form = (<TestConfiguration/>)
+    }else{
+      this.form = (<AppendForm log={"selected_log"} oldFiles={[]} comment={""}/>);
     }
 
     this.element = (
@@ -394,8 +464,9 @@ function addTestConfiguration(log,operator,name,pnames,pconfigs){
   //return;
   $.ajax({
     type: "POST",
-    url: "/get_log",
+    url: "/add_config",
     dataType : "json",
+    async: false,
     contentType: "application/json; charset=utf-8",
     data : JSON.stringify(query),
     success: function(result){
@@ -451,11 +522,9 @@ function TestConfiguration(props) {
           pconfigs.push(numbers[i])
         }
       }
-      if(addTestConfiguration(currentLog,operator,name,pnames,pconfigs)){
-        testing_config_entered= true;
+      let succ = addTestConfiguration(currentLog,operator,name,pnames,pconfigs)
+      if(succ){
         ReactDOM.render(<AddLogEntry log={currentLog}/>, document.getElementById('root'));
-      }else{
-
       }
     }
   };
@@ -532,22 +601,57 @@ function TestConfiguration(props) {
 
 
 function LogMenu(props){
+  let ids = []
 
-  let ids = getRecentLogIds()
+  $.ajax({
+    type: "GET",
+    url: "/get_recent",
+    dataType : "json",
+    async: false,
+    contentType: "application/json; charset=utf-8",
+    success: function(result){
+        ids = result["ids"]
+    },
+    error: function(request, status, error){
+        console.log("Error");
+        console.log(request)
+        console.log(status)
+        console.log(error)
+    }
+  })
+
+  //let ids = getRecentLogIds()
   let items = []
+  let data = {}
 
   console.log(ids)
 
   for(let i=0;i<ids.length;i++){
-    let data = getLogData(i)
+    let thisId = ids[i]
+    $.ajax({
+      type: "GET",
+      url: "/get_log/" + thisId,
+      dataType : "json",
+      async: false,
+      contentType: "application/json; charset=utf-8",
+      //data : JSON.stringify(thisId),
+      success: function(result){
+          data = result["data"]
+      },
+      error: function(request, status, error){
+          console.log("Error");
+          console.log(request)
+          console.log(status)
+          console.log(error)
+      }
+    })
+
     console.log(data)
 
     let text = testingConfigToTable(data["operator"],data["configname"],[],[],false)
     let title = data["title"]
     let id = ids[i]
     let updated = data["timestop"]
-
-    let example = (<div>Header entry shown here.</div>);
 
     items.push(<LogCard text={text} title={title} id={id} updated={updated}/>);
   }
@@ -685,12 +789,13 @@ function AppendForm(props) {
 function appendEntry(log,author,files,comment,images,isAppended){
 
   //window.location.reload(false);
-  query = {"log":log, "author":author, "files":files, comment:"comment", "images":images,"isAppended":isAppended}
+  query = {"log":log, "author":author, "files":files, "comment":comment, "images":images,"isAppended":isAppended, "tag":query}
   //return;
   $.ajax({
     type: "POST",
-    url: "/get_log",
+    url: "/add_entry",
     dataType : "json",
+    async: false,
     contentType: "application/json; charset=utf-8",
     data : JSON.stringify(query),
     success: function(result){
@@ -827,8 +932,11 @@ class ManualSave extends React.Component{
 
   handleChange(){
     console.log('manual save button pressed')
-    let success = manualSave(currentLog, this.id)
+    let success = manualSave(currentLog)
     sendAlert(success)
+    if(success){
+      window.location.reload(false);
+    }
   }
 
   render(){
@@ -838,14 +946,15 @@ class ManualSave extends React.Component{
   }
 }
 
-function manualSave(log,id){
+function manualSave(log){
   //return true
   $.ajax({
     type: "POST",
-    url: "/get_log",
+    url: "/commit_log",
     dataType : "json",
+    async: false,
     contentType: "application/json; charset=utf-8",
-    data : JSON.stringify({"log":log,"id":id}),
+    data : JSON.stringify({"log":log}),
     success: function(result){
         return result["succ"]
     },
