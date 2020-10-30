@@ -1,4 +1,4 @@
-# Lyncean Elog (Alpha-v3)
+# Lyncean Elog (Alpha-v4)
 
 ## Instructions for Installation
 
