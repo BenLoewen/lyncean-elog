@@ -1,20 +1,28 @@
 from flask import Flask
 from flask import render_template
-from flask import Response, request, jsonify
+from flask import Response, request, jsonify, flash, url_for, session
 import sqlite3
 from datetime import datetime, timedelta
 import time
-from urllib.request import urlopen
+import requests
+import shutil
+import urllib
 import os
 app = Flask(__name__)
 
 
 cursor = None
 db = None
+curr_log = "electronics"
 curr_entryId = 0
+curr_logId = 0
 curr_appendedId = 0
 logIds = {"electronics":1}
 database_path = 'data/elog'
+UPLOAD_FOLDER = "C:/Users/benja/Desktop/work/elog1.0/react-app/public/uploads/"
+CONFIG_FOLDER = "C:/Users/benja/Desktop/work/elog1.0/config/configs.txt"
+COMMON_FOLDER = "C:/Users/benja/Desktop/work/elog1.0/common/"
+
 
 #All database functions
 #createDatabase
@@ -43,13 +51,13 @@ def createDatabase():
   ''')
   print("created table: tag")
   cursor.execute('''
-    CREATE TABLE file(path TEXT, entry INTEGER, appended INTEGER)
-  ''')
-  print("created table: file")
-  cursor.execute('''
-    CREATE TABLE image(url INTEGER, entry INTEGER, appended INTEGER)
+    CREATE TABLE image(path TEXT, entry INTEGER, appended INTEGER)
   ''')
   print("created table: image")
+  cursor.execute('''
+    CREATE TABLE file(name TEXT, data TEXT, entry INTEGER, appended INTEGER)
+  ''')
+  print("created table: file")
   cursor.execute('''
     CREATE TABLE comment(text INTEGER, entry INTEGER, appended INTEGER)
   ''')
@@ -123,7 +131,15 @@ def fetchIds():
   cursor,db = getCursor()
   global curr_appendedId
   global curr_entryId
+  global curr_logId
   select = "SELECT MAX(id) FROM log;"
+  for row in cursor.execute(select):
+    max_id = row[0]
+    if max_id is None:
+      curr_logId = 0
+    else:
+      curr_logId = int(max_id) + 1
+  select = "SELECT MAX(id) FROM entry;"
   for row in cursor.execute(select):
     max_id = row[0]
     if max_id is None:
@@ -137,7 +153,12 @@ def fetchIds():
       curr_appendedId = 0
     else:
       curr_appendedId = int(max_id) + 1
-  print(curr_entryId)
+
+def fetchLogs():
+  cursor,db = getCursor()
+  select = "SELECT * FROM log;"
+  for row in cursor.execute(select):
+    print(row)
 
 def commitLog(log):
   cursor,db = getCursor()
@@ -201,6 +222,7 @@ def getNumCommits(log):
 
 def addEntry(author,log):
   cursor,db = getCursor()
+  curr_log = log
   global curr_entryId
   #Get time
   now = datetime.now()
@@ -209,6 +231,7 @@ def addEntry(author,log):
   numcommits = getNumCommits(log)
   logId = now.strftime("%Y%m%d") + str(logIds[log]) + str(numcommits)
   #Get ID of entry
+  fetchIds()
   curr_entryId+=1
   entryId = str(curr_entryId)
   #Insert entry into database
@@ -263,6 +286,7 @@ def addPart(name,pname,pconfig):
   print("inserted part configuration")
 
 def addLogPost(log, author, comment, files, images, tags, isAppended):
+  print(tags)
   entryId,logId = addEntry(author,log)
   #Add post data to databse
   appendedId = 0
@@ -271,8 +295,8 @@ def addLogPost(log, author, comment, files, images, tags, isAppended):
   addComment(comment,entryId,appendedId)
   for f in files:
     addFile(f,log,entryId,appendedId)
-  for img in images:
-    addImage(img,log,entryId,appendedId)
+  for i in images:
+    addImage(i,log,entryId,appendedId)
   for tag in tags:
     addTag(tag,entryId)
 
@@ -294,42 +318,64 @@ def addAppendedStamp(author):
 
 def addFile(f,log,entryId,appendedId):
   cursor,db = getCursor()
-  #path = saveFile(f,log)
-  path = f
+  saveFile(f,log)
+  data = f[1]
+  name = f[0]
   insert = '''
-          INSERT INTO FILE (PATH,ENTRY,APPENDED)
-          VALUES (?, ?, ?);
+          INSERT INTO FILE (NAME,DATA,ENTRY,APPENDED)
+          VALUES (?, ?, ?, ?);
           '''
-  data_tuple = (path,entryId,appendedId)
+  data_tuple = (name,data,entryId,appendedId)
   cursor.execute(insert, data_tuple)
   db.commit()
   print("inserted new file into file table")
 
-def saveFile(f,log):
-  name = f[0]
-  url = f[1]
-  with open(url,"rb") as f:
-    image_blob = f.read()
+def saveFile(file,log):
+  name = file[0]
+  data = file[1]
   now = datetime.now()
   date = now.strftime("/%Y/%m/%d/")
-  directory = "/common/" + str(log) + date
+  directory = COMMON_FOLDER + str(log) + date
   path = directory + name
-  newFile = open(path, "wb")
+  if not os.path.isdir(directory):
+      os.mkdir(directory)
+  newFile = open(path, 'w')
   newFile.write(data)
   newFile.close()
-  return paths
+
+def saveImage(img,log):
+  name = img[0]
+  url = img[1]
+  now = datetime.now()
+  date = now.strftime("/%Y/%m/%d/")
+  directory = "C:\\Users\\benja\\Desktop\\work\\elog1.0\\common\\" + str(log) + date
+  path = directory + name
+
+  # fake user agent of Safari
+  fake_useragent = 'Mozilla/5.0 (iPad; CPU OS 6_0 like Mac OS X) AppleWebKit/536.26 (KHTML, like Gecko) Version/6.0 Mobile/10A5355d Safari/8536.25'
+  r = urllib.request.Request(url, headers={'User-Agent': fake_useragent})
+  f = urllib.request.urlopen(r)
+  data = f.read()
+  newFile = open(path, 'wb')
+  newFile.write(b)
+  return path
 
 def addImage(img,log,entryId,appendedId):
   cursor,db = getCursor()
-  path = saveFile(img,log)
+  now = datetime.now()
+  date = now.strftime("/%Y/%m/%d/")
+  log = curr_log
+  print(img)
+  path = "./uploads/" + str(log) + date + img
   insert = '''
-          INSERT INTO IMAGE (URL,ENTRY,APPENDED)
+          INSERT INTO IMAGE (PATH,ENTRY,APPENDED)
           VALUES (?, ?, ?);
           '''
   data_tuple = (path,entryId,appendedId)
   cursor.execute(insert, data_tuple)
   db.commit()
   print("inserted new image into image table")
+
 
 def addComment(text,entryId,appendedId):
   cursor,db = getCursor()
@@ -350,7 +396,7 @@ def addTag(tag,entryId):
           INSERT INTO tag (ENTRY,TAG)
           VALUES (?, ?);
           '''
-  data_tuple = (tag,entryId)
+  data_tuple = (entryId,tag)
   cursor.execute(insert, data_tuple)
   db.commit()
   print("inserted new tag into tag table")
@@ -398,28 +444,36 @@ def getLogData(logId):
   return log_info
 
 def getEntries(logId):
-  print(logId)
   cursor,db = getCursor()
   entries = []
   #entry = (files,comments,tags)
-  for row in cursor.execute('SELECT * FROM entry WHERE log=? ORDER BY submitted;',[logId]):
-    print(row)
+  for row in cursor.execute('SELECT * FROM entry WHERE log=? ORDER BY submitted;',[int(logId)]):
     entry = {}
-    id = row[0]
+    entry["id"] = row[0]
     entry["author"] = row[2]
     entry["time"] = row[4]
     entry["files"] = []
-    for row in cursor.execute('SELECT path FROM file WHERE entry=?;',[id]):
-      entry["files"].append(row[0])
+    entry["images"] = []
+    entries.append(entry)
+  for entry in entries:
+    entryId = entry["id"]
+    for row in cursor.execute('SELECT name,data FROM file WHERE entry=?;',[entryId]):
+      entry["files"].append([row[0],row[1]])
+    for row in cursor.execute('SELECT path FROM image WHERE entry=?;',[entryId]):
+      entry["images"].append(row[0])
     entry["comments"] = []
-    for row in cursor.execute('SELECT text FROM comment WHERE entry=?;',[id]):
+    for row in cursor.execute('SELECT text FROM comment WHERE entry=?;',[entryId]):
       entry["comments"].append(row[0])
     entry["tags"] = []
-    for row in cursor.execute('SELECT tag FROM tag WHERE entry=?;',[id]):
+    for row in cursor.execute('SELECT tag FROM tag WHERE entry=?;',[entryId]):
       entry["tags"].append(row[0])
-
-    entries.append(entry)
   return entries
+
+def listEntries():
+
+  cursor,db = getCursor()
+  for row in cursor.execute('SELECT * FROM entry where log=2020110310 ORDER BY submitted;'):
+    print(row)
 
 #All routes
 #add_entry: for adding new log entry
@@ -437,8 +491,8 @@ def add_entry():
   log = query["log"]
   author = query["author"]
   files = query["files"]
-  comment = query["comment"]
   images = query["images"]
+  comment = query["comment"]
   tags = query["tag"]
   isAppended = query["isAppended"]
   success = None
@@ -498,15 +552,11 @@ def get_log(id=None):
   #except:
   #  print("Unsucessful attempt to retrieve log: " + str(id))
 
-  print('yahoo')
-  print(returnData)
-
   return jsonify(data = returnData)
 
 @app.route('/get_entries/<id>', methods=['GET'])
 def get_entries(id=None):
   entries = getEntries(id)
-  print(entries)
   return jsonify(entries = entries)
 
 @app.route('/get_recent', methods=['GET'])
@@ -525,6 +575,7 @@ def set_autocommit():
 
   try:
     changeAutoCommit(log,value)
+
     succ = True
   except:
     print("unsuccesful attempt to set autocommit")
@@ -532,14 +583,9 @@ def set_autocommit():
 
   return jsonify(succ = succ)
 
-@app.route('/get_autocommit', methods=['GET'])
-def get_autocommit():
-  query = request.get_json()
-
-  log = query["log"]
-
+@app.route('/get_autocommit/<log>', methods=['GET'])
+def get_autocommit(log=None):
   value = 1
-
   try:
     value = getAutoCommit(log)
   except:
@@ -588,24 +634,20 @@ def header_exists():
 
   return jsonify(exists = doesExist)
 
-@app.route('/get_config', methods=['GET', 'POST'])
-def get_config():
-  query = request.get_json()
+@app.route('/get_config/<name>', methods=['GET'])
+def get_config(name=None):
 
-  name = query["name"]
-  configs = {}
-
-  print("received request to get configs")
+  print("received request to get config with name " + name)
   print('...')
 
   try:
-    configs = getConfigsFromDatabase()
+    config = getConfig(name)
   except:
-    print("unsuccessful attempt to retrieve configs")
+    print("unsuccessful attempt to retrieve config with name " + name)
     print("...")
 
 
-  return jsonify(configs = configs)
+  return jsonify(config = config)
 
 def getConfigFromDatabase(name):
   cursor,db = getCursor()
@@ -615,31 +657,87 @@ def getConfigFromDatabase(name):
     configs.append([row[1],row[2]])
   return configs
 
-@app.route('/get_configs', methods=['GET', 'POST'])
+@app.route('/get_configs', methods=['GET'])
 def get_configs():
-  query = request.get_json()
-
   configs = {}
 
   print("received request to get configs")
   print('...')
 
   try:
-    configs = getConfigsFromDatabase()
+    configs = getConfigNames()
   except:
     print("unsuccessful attempt to retrieve configs")
     print("...")
 
   return jsonify(configs = configs)
 
-def loadConfigs():
-  configs = getConfigsFromDatabase()
-  #TODO
+
+@app.route('/upload', methods=['POST'])
+def fileUpload():
+    now = datetime.now()
+    date = now.strftime("/%Y/%m/%d/")
+    file = request.files['file']
+    filename = file.filename
+    log = curr_log
+    target = COMMON_FOLDER + str(log) + date
+    if not os.path.isdir(target):
+        os.mkdir(target)
+    destination="/".join([target, filename])
+    file.save(destination)
+    response = "success?"
+    return response
+
+@app.route('/upload2', methods=['POST'])
+def fileUpload2():
+    now = datetime.now()
+    date = now.strftime("/%Y/%m/%d/")
+    file = request.files['file']
+    filename = file.filename
+    log = curr_log
+    target = UPLOAD_FOLDER + str(log) + date
+    if not os.path.isdir(target):
+        os.mkdir(target)
+    destination="/".join([target, filename])
+    file.save(destination)
+    response = "success?"
+    return response
+
+
+def getConfigNames():
+  names = []
+  configs = getConfigsFromFile()
+  for config in configs:
+    names.append(config)
+  return names
+
+def getConfig(name):
+  specs = []
+  configs = getConfigsFromFile()
+  return configs[name]
+
+def getConfigsFromFile():
+  f = open(CONFIG_FOLDER,'r')
+  lines = f.readlines()
+  configs = {}
+  curr_config = None
+  for line in lines:
+    if line.startswith('#'):
+      config_name = line[1:].strip()
+      configs[config_name] = []
+      curr_config = config_name
+    else:
+      if len(line)>1:
+        split = line.index(":")
+        part_name = line[0:split].lstrip()
+        part_config = line[split+1:].rstrip()
+        configs[curr_config].append([part_name,part_config])
   return configs
 
 
-def getConfigsFromDatabase():
 
+
+def getConfigsFromDatabase():
   cursor,db = getCursor()
   configs = {}
   select = "SELECT * FROM part;"
@@ -656,6 +754,7 @@ def getConfigsFromDatabase():
 @app.route("/")
 def my_index():
     return render_template("index.html")
+
 
 def runAutojobs():
   os.system("python autojobs.py")
