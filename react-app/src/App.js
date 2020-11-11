@@ -1,6 +1,5 @@
 import React, { useState, setShow, useEffect } from 'react';
 import ReactDOM, { render } from 'react-dom'
-import logo from './logo.svg';
 import './App.css';
 import Dropzone from 'react-dropzone';
 import {useDropzone} from 'react-dropzone';
@@ -36,21 +35,25 @@ import request from "superagent";
 let buttonId = 0
 let iter = 0
 let last=-1
+let shortcutImages = []
 let files = []
 let shownFiles = []
 let uploadedImages = []
+let uploadedFiles = []
 let alerts = [<Alert key={1} variant="success">Success</Alert>,<Alert key={2} variant="warning">Warning, changes may have not gone through!</Alert>]
 const list_of_logs = ["Electronics"]
 let lastUrl = ""
 let query = ""
+let prev_query = ""
 let testing_config_entered = true;
 let currentLog = ""
 let rootUrl = ""
 let headerExists = {}
 
-//THESE ARE TEMPORARY AND SHOULD BE REMOVED WHEN APP INTEGRATED IN FLASK SERVER
+//Global variables
 let glob_user = "operator"
 let glob_subsystems = ["MUX","MtrCntrl","Sync","InjLsFdbk","PwrMtr","LLRF","RFPPA","VacRad","SbandAmp","UniPolar","BiPolar","BPM","TSDG", "Magnets", "Mod"]
+let glob_tags = {"electronics":["MUX","MtrCntrl","Sync","InjLsFdbk","PwrMtr","LLRF","RFPPA","VacRad","SbandAmp","UniPolar","BiPolar","BPM","TSDG", "Magnets", "Mod"],"operations":["Gun Test","Load Test","Structure Test","Module Test"]}
 
 
 function App() {
@@ -62,8 +65,8 @@ function App() {
     q = currUrl.length
   }
   query = currUrl.slice(q+1)
+  prev_query = query
   rootUrl = currUrl.slice(0,q)
-  console.log(rootUrl)
 
   lastUrl = currUrl
   const element = <h1></h1>;
@@ -92,7 +95,7 @@ function tick(){
   if(q==-1){
     q = currUrl.length
   }
-  let prev_query = query
+  prev_query = query
   query = currUrl.slice(q+1)
   rootUrl = currUrl.slice(0,q)
   if(lastUrl!=currUrl){
@@ -100,18 +103,21 @@ function tick(){
     if(currUrl.indexOf("#/write-to/electronics-log")==0){
       currentLog = "electronics"
       ReactDOM.render(<AddLogEntry log={currentLog}/>, document.getElementById('root'));
+      if(prev_query!=query){
+        ReactDOM.render(<TagDropdownBox/>, document.getElementById('tag-selection'));
+      }
     }
     else if(currUrl.indexOf("#/view/recent-logs")==0){
       ReactDOM.render(<RecentLogs/>, document.getElementById('root'));
     }
     else if(currUrl.indexOf("#/view/log")==0){
       ReactDOM.render(<ViewLog/>, document.getElementById('root'));
+      if(prev_query!=query){
+        window.location.reload(false);
+      }
     }
     else{
       ReactDOM.render(element, document.getElementById('root'));
-      window.location.reload(false);
-    }
-    if(prev_query!=query){
       window.location.reload(false);
     }
     lastUrl = currUrl;
@@ -121,11 +127,23 @@ function tick(){
 setInterval(tick, 100);
 
 function Post(props){
+    let images = []
     let files = []
     let comments = []
     let tags = []
+    for(let i=0;i<props.images.length;i++){
+      let img = props.images[i]
+      //images.push(<img src={require(img)}/>)
+      console.log(img)
+      console.log('./uploads/electronics/2020/11/09/digitalwork.PNG')
+      //images.push(<img src={require('./uploads/electronics/2020/11/09/digitalwork.PNG')}/>)
+      //images.push(<img src={"'" + require(img) + "'"}/>)
+      //images.push(<Image src='./uploads/electronics/2020/11/09/digitalwork.PNG'/>)
+      images.push(<Image src={img}/>)
+    }
     for(let i=0;i<props.files.length;i++){
-      files.push(<File path={props.files[i]}/>)
+      let f = props.files[i]
+      files.push(<File name={f[0]} data={f[1]}/>)
     }
     for(let i=0;i<props.comments.length;i++){
       comments.push(<Comment text={props.comments[i]}/>)
@@ -137,6 +155,7 @@ function Post(props){
             <Row><div class="italic-large">Posted at {props.time} by {props.author}</div></Row>
             <Row>
               <Col xs={12}>
+                <Row>{images}</Row>
                 <Row>{files}</Row>
                 <Row>{comments}</Row>
                 <Tag tags={tags}/>
@@ -144,6 +163,12 @@ function Post(props){
             </Row>
            </Container>);
 };
+
+function Image(props){
+  let test = props.src.slice(1,props.src.length)
+  console.log(test)
+  return(<img src={process.env.PUBLIC_URL + test} width="50%" height="auto"></img>)
+}
 
 
 function Log(props){
@@ -174,7 +199,7 @@ function Entries(props){
   let i = 0
   for(i=0; i< entries.length; i++){
     let entry = entries[i]
-    result.push(<ListGroupItem><Post files={entry["files"]} comments={entry["comments"]} time={entry["time"]} author={entry["author"]} tags={entry["tags"]}/></ListGroupItem>)
+    result.push(<ListGroupItem><Post files={entry["files"]} images={entry["images"]} comments={entry["comments"]} time={entry["time"]} author={entry["author"]} tags={entry["tags"]}/></ListGroupItem>)
   }
   return result
 }
@@ -397,7 +422,7 @@ function change_autocommit(log,value){
         console.log(error)
         return false
     }
-});
+  });
 }
 
 class WriteToLog extends React.Component{
@@ -405,7 +430,8 @@ class WriteToLog extends React.Component{
     super(props)
     this.state = {log:props.log, subsytem:query}
     //Has this log been written to?
-    this.form = (<AppendForm log={"selected_log"} oldFiles={[]} comment={""}/>);
+    this.form = (<AppendForm log={props.log} oldFiles={[]} comment={""}/>);
+    this.tags = (<div></div>);
 
     let header = false;
 
@@ -433,7 +459,8 @@ class WriteToLog extends React.Component{
     if(header===false){
       this.form = (<TestConfiguration/>)
     }else{
-      this.form = (<AppendForm log={"selected_log"} oldFiles={[]} comment={""}/>);
+      this.form = (<AppendForm log={"selected_log"} oldFiles={[]} comment={""} id="append-form"/>);
+      this.tags = (<TagDropdownBox id="tag-selection"/>)
     }
 
     this.element = (
@@ -444,8 +471,8 @@ class WriteToLog extends React.Component{
         </div>
         <Row>
           <Col xs={4}><LogDropdownBox log={this.state.log} prepend={"Adding Entry to: "}/></Col>
-          <Col xs={3}><SubsystemDropdownBox/></Col>
-          <Col xs={3}><AutosaveLog value={'1'}/></Col>
+          <Col xs={3}>{this.tags}</Col>
+          <Col xs={3}><AutosaveLog/></Col>
           <Col xs={2}><ManualSave/></Col>
         </Row>
         {this.form}
@@ -460,7 +487,7 @@ class WriteToLog extends React.Component{
 
 function addTestConfiguration(log,operator,name,pnames,pconfigs){
   //window.location.reload(false);
-  query = {"log":log, "operator":operator, "files":files, name:"name", "pnames":pnames,"pconfigs":pconfigs}
+  query = {"log":log, "operator":operator, "files":files, "name":name, "pnames":pnames,"pconfigs":pconfigs}
   //return;
   $.ajax({
     type: "POST",
@@ -513,6 +540,8 @@ function TestConfiguration(props) {
       let name = event.target.config_name.value
       let pnames = []
       let pconfigs = []
+      console.log(event.target)
+      console.log(event.target.checked0)
       let checked = [event.target.checked0.checked,event.target.checked1.checked,event.target.checked2.checked,event.target.checked3.checked,event.target.checked4.checked]
       let components = [event.target.component0.value, event.target.component1.value, event.target.component2.value, event.target.component3.value, event.target.component4.value]
       let numbers = [event.target.number0.value, event.target.number1.value, event.target.number2.value, event.target.number3.value, event.target.number4.value]
@@ -524,36 +553,128 @@ function TestConfiguration(props) {
       }
       let succ = addTestConfiguration(currentLog,operator,name,pnames,pconfigs)
       if(succ){
-        ReactDOM.render(<AddLogEntry log={currentLog}/>, document.getElementById('root'));
+        window.location.href = rootUrl
+        window.location.reload(false)
       }
     }
   };
 
+  let configs = []
+  let names = []
+
+  $.ajax({
+    type: "GET",
+    url: '/get_configs',
+    dataType : "json",
+    async: false,
+    contentType: "application/json; charset=utf-8",
+    success: function(result){
+        names = result["configs"]
+    },
+    error: function(request, status, error){
+        console.log("Error");
+        console.log(request)
+        console.log(status)
+        console.log(error)
+    }
+  })
+
+  console.log(names)
+
+  for(var i=0; i<names.length;i++){
+    let name = names[i]
+    configs.push(<Dropdown.Item href={rootUrl + "?" + name}>{name}</Dropdown.Item>);
+  }
+  //href={lastUrl + "?" + name}
+
+
+  let config = []
+
+  let configName = (<Form.Group id="comment-input" as={Col} md="12" controlId="validationCustom01">
+                      <Form.Control
+                        required
+                        id="config_name"
+                        type="text"
+                        name="config_name"
+                        placeholder= "Configuration Name"
+                        defaultValue=""
+                      />
+                    </Form.Group>);
+
+
+  if(query!=null && query.length>1){
+    $.ajax({
+      type: "GET",
+      url: "/get_config/" + query,
+      dataType : "json",
+      async: false,
+      contentType: "application/json; charset=utf-8",
+      success: function(result){
+          console.log("success")
+          config = result["config"]
+      },
+      error: function(request, status, error){
+          console.log("Error");
+          console.log(request)
+          console.log(status)
+          console.log(error)
+      }
+    })
+    let name = query.replace('%',' ')
+    configName = (<Form.Group id="comment-input" as={Col} md="12" controlId="validationCustom01">
+                      <Form.Control
+                        required
+                        id="config_name"
+                        type="text"
+                        name="config_name"
+                        value= {name}
+                        defaultValue=""
+                      />
+                    </Form.Group>);
+  }
+
+
   let result = []
-  let i =0
-  for(; i<5;i++){
+  let j =0
+  for(; j<config.length;j++){
+    let c = config[j]
+    result.push(
+      <div class="test-config">
+        <InputGroup className="mb-3">
+          <InputGroup.Prepend>
+            <InputGroup.Checkbox name={"checked"+j.toString()}/>
+          </InputGroup.Prepend>
+          <FormControl value={c[0]} name={"component"+j.toString()}/>
+          <FormControl value={c[1]} name={"number"+j.toString()}/>
+        </InputGroup>
+      </div>
+    );
+  }
+
+
+  for(; j<5;j++){
     result.push(
                   <div class="test-config">
                     <InputGroup className="mb-3">
                       <InputGroup.Prepend>
-                        <InputGroup.Checkbox name={"checked"+i.toString()}/>
+                        <InputGroup.Checkbox name={"checked"+j.toString()}/>
                       </InputGroup.Prepend>
-                      <FormControl placeholder="Component(s)" name={"component"+i.toString()}/>
-                      <FormControl placeholder="Specification (ex. serial numbers)" name={"number"+i.toString()}/>
+                      <FormControl placeholder="Component(s)" name={"component"+j.toString()}/>
+                      <FormControl placeholder="Specification (ex. serial numbers)" name={"number"+j.toString()}/>
                     </InputGroup>
                   </div>
                 );
   }
   return (<div>
-            <div class="italic" id="info">No configuration has been submitted for the testing log</div>
+            <div class="italic" id="info">No configuration has been submitted for the log</div>
             <Form noValidate validated={validated} onSubmit={handleSubmit}>
               <Form.Row>
               <Container>
                 <Row>
                   <Col xs = "3">
+
                     <DropdownButton id="dropdown-adv" title="Load Previous">
-                      <Dropdown.Item href="#/action-1">Example Config</Dropdown.Item>
-                      <Dropdown.Item href="#/action-1">Another Saved Config</Dropdown.Item>
+                      {configs}
                     </DropdownButton>
                   </Col>
                   <Col xs = "9">
@@ -569,16 +690,7 @@ function TestConfiguration(props) {
                     </Form.Group>
 
 
-                    <Form.Group id="comment-input" as={Col} md="12" controlId="validationCustom01">
-                      <Form.Control
-                        required
-                        id="config_name"
-                        type="text"
-                        name="config_name"
-                        placeholder= "Configuration Name"
-                        defaultValue=""
-                      />
-                    </Form.Group>
+                    {configName}
                   </Col>
                 </Row>
               </Container>
@@ -660,19 +772,6 @@ function LogMenu(props){
 
 }
 
-let Image = function(props){
-  let url = props.url
-  //let name = url.substring(url.lastIndexOf('.'))
-  //let isCaptioned = props.isCaptioned
-  //let caption = props.caption
-  return (<Container>
-            <Row>
-              <Col xs={10}>
-                <Image src={url} thumbnail />
-              </Col>
-            </Row>
-          </Container>);
-}
 
 function LogCard(props){
   return(<Card style={{ width: '18rem' }}>
@@ -730,6 +829,43 @@ function sendAlert(success){
   }
 }
 
+function getUploadedImages(){
+  let imgs = []
+  $.ajax({
+    type: "GET",
+    url: "/shortcut_image",
+    dataType : "json",
+    async: false,
+    contentType: "application/json; charset=utf-8",
+    success: function(result){
+        imgs = result["shortcutImages"]
+    },
+    error: function(request, status, error){
+        console.log("Error");
+        console.log(request)
+        console.log(status)
+        console.log(error)
+        return false
+    }
+  });
+
+  let addedImgs = []
+
+  for(var i=0; i<imgs.length;i++){
+    let path = imgs[i]
+    let name = path.slice(path.lastIndexOf('\\'))
+    let f = {"path":path, "name":name}
+    addedImgs.push(f);
+  }
+
+  console.log(addedImgs)
+
+  if(addedImgs.length>0){
+    ReactDOM.render(<FileDrop oldFiles={[]} shortcutImages={addedImgs} id="file-drop"/>, document.getElementById('file-drop'));
+  }
+}
+
+//setInterval(getUploadedImages, 1000);
 
 function AppendForm(props) {
   const [validated, setValidated] = useState(false);
@@ -753,8 +889,8 @@ function AppendForm(props) {
       event.preventDefault();
       event.stopPropagation();
       setValidated(false);
-      console.log("bollocks")
-      appendEntry(currentLog, glob_user,files,event.target.comment.value,uploadedImages,false)
+      console.log(shownFiles)
+      appendEntry(currentLog, glob_user,uploadedFiles,uploadedImages,event.target.comment.value,false)
       //window.location.reload(false);
       //uploadedImages = []
       //oldFiles = []
@@ -763,11 +899,10 @@ function AppendForm(props) {
     }
   };
 
-
   return (
     <div>
     <Form noValidate validated={validated} onSubmit={handleSubmit}>
-      <FileDrop oldFiles={oldFiles} />
+      <FileDrop oldFiles={oldFiles} shortcutImages={[]} id="file-drop"/>
       <Form.Row>
         <Form.Group id="comment-input" as={Col} md="12" controlId="validationCustom01">
           <Form.Control
@@ -786,10 +921,23 @@ function AppendForm(props) {
   );
 }
 
-function appendEntry(log,author,files,comment,images,isAppended){
+function appendEntry(log,author,entryFiles,entryImages,comment,isAppended){
+  let sentFiles = []
+  console.log(entryFiles)
+  for(var i=0;i<entryFiles.length;i++){
+    let thisFile = entryFiles[i]
+    sentFiles.push([thisFile["name"], thisFile["storedData"]])
+  }
+  let sentImages = []
+  console.log(entryImages)
+
+  for(var i=0;i<entryImages.length;i++){
+    let thisImage = entryImages[i]
+    sentImages.push(thisImage["name"])
+  }
 
   //window.location.reload(false);
-  query = {"log":log, "author":author, "files":files, "comment":comment, "images":images,"isAppended":isAppended, "tag":query}
+  query = {"log":log, "author":author, "files":sentFiles, "images":sentImages, "comment":comment, "isAppended":isAppended, "tag":[query]}
   //return;
   $.ajax({
     type: "POST",
@@ -804,7 +952,7 @@ function appendEntry(log,author,files,comment,images,isAppended){
         if(succ){
           files = []
           uploadedImages = []
-          window.location.reload(false);
+          //window.location.reload(false);
         }else{
           sendAlert(false)
         }
@@ -818,11 +966,61 @@ function appendEntry(log,author,files,comment,images,isAppended){
     }
   })
 
+  for(var i=0;i<entryImages.length;i++){
+    let thisImage = entryImages[i]
+
+    const data = new FormData();
+    data.append('file',thisImage)
+    data.append('filename',thisImage["name"])
+    data.append('log',currentLog)
+
+    fetch('http://localhost:4000/upload', {
+      method: 'POST',
+      body: data,
+    }).then((response) => {
+      response.json().then((body) => {
+        this.setState({ imageURL: `http://localhost:4000/${body.file}` });
+      });
+    });
+
+    fetch('http://localhost:4000/upload2', {
+      method: 'POST',
+      body: data,
+    }).then((response) => {
+      response.json().then((body) => {
+        this.setState({ imageURL: `http://localhost:4000/${body.file}` });
+      });
+    });
+
+  }
+
 }
 
 function AutosaveLog(props) {
   const [checked, setChecked] = useState(false);
-  const [radioValue, setRadioValue] = useState(props.value);
+  let value = '1'
+  $.ajax({
+    type: "GET",
+    url: '/get_autocommit/' + currentLog,
+    dataType : "json",
+    async: false,
+    contentType: "application/json; charset=utf-8",
+    success: function(result){
+        value = result["value"].toString()
+        console.log(result["value"].toString())
+        console.log(value)
+    },
+    error: function(request, status, error){
+        console.log("Error");
+        console.log(request)
+        console.log(status)
+        console.log(error)
+    }
+  });
+
+
+  console.log(value)
+  const [radioValue, setRadioValue] = useState(value);
 
   const radios = [
     { name: 'On', value: '1' },
@@ -830,15 +1028,32 @@ function AutosaveLog(props) {
   ];
 
   function changeAutoSave(val){
-    console.log(val)
-
-    let success = change_autocommit(currentLog,val)
-
+    let success = false
+    $.ajax({
+      type: "POST",
+      url: "/set_autocommit",
+      dataType : "json",
+      async: false,
+      contentType: "application/json; charset=utf-8",
+      data : JSON.stringify({"log":currentLog,"value":val}),
+      success: function(result){
+          success = result["succ"]
+          console.log(result)
+          console.log(success)
+      },
+      error: function(request, status, error){
+          console.log("Error");
+          console.log(request)
+          console.log(status)
+          console.log(error)
+          return false
+      }
+    });
+    console.log(success)
     if(success){
       if(val==0 || val==1){
         setRadioValue(val)
       }
-      sendAlert(true)
     }else{
       sendAlert(false)
     }
@@ -897,19 +1112,20 @@ class LogDropdownBox extends React.Component{
   }
 }
 
-function SubsystemDropdownBox(props){
+function TagDropdownBox(props){
   let selection = "None"
   console.log(query.length)
   if(query.length>1){
     selection=query.slice(0,1).toUpperCase() + query.slice(1)
   }
   let items = []
-  for(let i=0; i<glob_subsystems.length; i++){
-  items.push(<Dropdown.Item href={rootUrl + "?" + glob_subsystems[i]}>{glob_subsystems[i]}</Dropdown.Item>)
+  let tag_selections = glob_tags[currentLog]
+  for(let i=0; i<tag_selections.length; i++){
+    items.push(<Dropdown.Item href={rootUrl + "?" + tag_selections[i]}>{tag_selections[i]}</Dropdown.Item>)
   }
   return(
     <Dropdown>
-      <span>Subsystem: </span>
+      <span>Tag: </span>
       <Dropdown.Toggle variant="secondary" id="dropdown-basic">
         {selection}
       </Dropdown.Toggle>
@@ -990,6 +1206,8 @@ class GenericButton extends React.Component{
   }
 }
 
+
+
 const thumbsContainer = {
   display: 'flex',
   flexDirection: 'row',
@@ -1028,15 +1246,42 @@ function FileDrop(props) {
   const {acceptedFiles, getRootProps, getInputProps} = useDropzone({
     getFilesFromEvent: event => myCustomFileGetter(event)
   });
-  shownFiles = props.oldFiles
+  for(var i=0; i<props.oldFiles;i++){
+    shownFiles.push(props.oldFiles[i])
+  }
   let files = []
+
+  let shortcutImages = props.shortcutImages
+
+  for(var i=0;i<shortcutImages.length;i++){
+    let img = shortcutImages[i]
+    console.log(img)
+    shownFiles.push(img)
+    files.push(img)
+    uploadedImages.push(img)
+  }
+
+  console.log(shortcutImages)
 
   function handleChange(name){
     for(var i = 0; i < shownFiles.length;i++){
       if (shownFiles[i].name===name) {
        shownFiles.splice(i,1);
-       uploadedImages.splice(i,1);
+      }
+    };
+    for(var i = 0; i < files.length;i++){
+      if (files[i].name===name) {
        files.splice(i,1);
+      }
+    };
+    for(var i = 0; i < uploadedFiles.length;i++){
+      if (uploadedFiles[i].name===name) {
+        uploadedFiles.splice(i,1);
+      }
+    };
+    for(var i = 0; i < uploadedImages.length;i++){
+      if (uploadedImages[i].name===name) {
+        uploadedImages.splice(i,1);
       }
     };
     setValue(iter++);
@@ -1048,7 +1293,7 @@ function FileDrop(props) {
 
   for (var i = 0; i < shownFiles.length; i++) {
     const f = shownFiles[i];
-    files.push(<GenericButton key={buttonId++} id={f.name} onChange={handleChange} text={f.name} inside={"X"}/>)
+    files.push(<GenericButton key={buttonId++} id={f["name"]} onChange={handleChange} text={f["name"]} inside={"X"}/>)
   }
 
   last=shownFiles.length
@@ -1110,22 +1355,6 @@ async function myCustomFileGetter(event) {
 
   for (var i = 0; i < fileList.length; i++) {
     const file = fileList.item(i);
-    console.log(file)
-
-
-    files.push(file);
-    shownFiles.push(file)
-
-
-    if(file.name.endsWith(".jpg") || file.name.endsWith(".png") || file.name.endsWith(".jpeg")){
-      Object.assign(file, {
-        preview: URL.createObjectURL(file)
-      })
-      uploadedImages.push(file)
-    }
-
-
-    console.log(file)
 
     const reader = new FileReader()
 
@@ -1133,10 +1362,29 @@ async function myCustomFileGetter(event) {
     reader.onerror = () => console.log('file reading has failed')
     reader.onload = () => {
     // Do whatever you want with the file contents
-      const binaryStr = reader.result
+      const res = reader.result
+      console.log(res)
+      Object.assign(file, {
+        storedData: res
+      })
     }
-    reader.readAsArrayBuffer(file)
 
+
+    if(file.name.endsWith(".jpg") || file.name.endsWith(".png") || file.name.endsWith(".jpeg") || file.name.endsWith(".PNG")){
+      Object.assign(file, {
+        preview: URL.createObjectURL(file)
+      })
+      uploadedImages.push(file)
+      files.push(file);
+      shownFiles.push(file)
+    }
+    if(file.name.endsWith(".txt") || file.name.endsWith(".csv")){
+      uploadedFiles.push(file)
+      reader.readAsText(file)
+
+      files.push(file);
+      shownFiles.push(file)
+    }
   }
 
   return files;
@@ -1177,9 +1425,12 @@ let Tag = function(props){
 }
 
 let File = function(props){
-  let path = props.path
-  let name = path.substring(path.lastIndexOf('/') + 1)
-  return <a href={path}> {name} </a>
+  let name = props.name
+  let data = props.data
+  let blob = new Blob([data], {type: "text/plain"});
+  let ref = URL.createObjectURL(blob);
+
+  return <div><a href={ref} target="_blank"> {name} </a></div>
 }
 
 let Stamp = function(props){
