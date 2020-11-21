@@ -31,6 +31,10 @@ import DropdownMenu from 'react-bootstrap/esm/DropdownMenu';
 import DropdownButton from 'react-bootstrap/DropdownButton'
 import { saveAs } from 'file-saver';
 import request from "superagent";
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
+import ReactPDF from '@react-pdf/renderer';
+import html2pdf from 'html2pdf.js'
 
 let buttonId = 0
 let iter = 0
@@ -41,7 +45,7 @@ let shownFiles = []
 let uploadedImages = []
 let uploadedFiles = []
 let alerts = [<Alert key={1} variant="success">Success</Alert>,<Alert key={2} variant="warning">Warning, changes may have not gone through!</Alert>]
-const list_of_logs = ["Electronics"]
+const list_of_logs = ["Electronics","Operations"]
 let lastUrl = ""
 let query = ""
 let prev_query = ""
@@ -50,9 +54,10 @@ let currentLog = ""
 let rootUrl = ""
 let headerExists = {}
 
+let test_id = 0
+
 //Global variables
 let glob_user = "operator"
-let glob_subsystems = ["MUX","MtrCntrl","Sync","InjLsFdbk","PwrMtr","LLRF","RFPPA","VacRad","SbandAmp","UniPolar","BiPolar","BPM","TSDG", "Magnets", "Mod"]
 let glob_tags = {"electronics":["MUX","MtrCntrl","Sync","InjLsFdbk","PwrMtr","LLRF","RFPPA","VacRad","SbandAmp","UniPolar","BiPolar","BPM","TSDG", "Magnets", "Mod"],"operations":["Gun Test","Load Test","Structure Test","Module Test"]}
 
 
@@ -70,8 +75,10 @@ function App() {
 
   lastUrl = currUrl
   const element = <h1></h1>;
-  if(currUrl.indexOf("#/write-to/electronics-log")==0){
-    currentLog = "electronics"
+
+  if(currUrl.indexOf("#/write-to/")==0){
+    let log_ind = currUrl.indexOf('-log')
+    currentLog = currUrl.slice(11,log_ind)
     return(<AddLogEntry log={currentLog}/>);
   }
   else if(currUrl.indexOf("#/view/recent-logs")==0){
@@ -98,11 +105,14 @@ function tick(){
   prev_query = query
   query = currUrl.slice(q+1)
   rootUrl = currUrl.slice(0,q)
+
   if(lastUrl!=currUrl){
-    const element = <h1></h1>;
-    if(currUrl.indexOf("#/write-to/electronics-log")==0){
-      currentLog = "electronics"
+    const element = <h1>Page Not Found!</h1>;
+    if(currUrl.indexOf("#/write-to/")==0){
+      let log_ind = currUrl.indexOf('-log')
+      currentLog = currUrl.slice(11,log_ind)
       ReactDOM.render(<AddLogEntry log={currentLog}/>, document.getElementById('root'));
+      $("#enter-comment").focus()
       if(prev_query!=query){
         ReactDOM.render(<TagDropdownBox/>, document.getElementById('tag-selection'));
       }
@@ -122,6 +132,10 @@ function tick(){
     }
     lastUrl = currUrl;
   }
+
+  //if(currUrl.indexOf("#/write-to/")==0){
+  //  $("#enter-comment").focus()
+  //}
 }
 
 setInterval(tick, 100);
@@ -133,20 +147,18 @@ function Post(props){
     let tags = []
     for(let i=0;i<props.images.length;i++){
       let img = props.images[i]
-      //images.push(<img src={require(img)}/>)
-      console.log(img)
-      console.log('./uploads/electronics/2020/11/09/digitalwork.PNG')
-      //images.push(<img src={require('./uploads/electronics/2020/11/09/digitalwork.PNG')}/>)
-      //images.push(<img src={"'" + require(img) + "'"}/>)
-      //images.push(<Image src='./uploads/electronics/2020/11/09/digitalwork.PNG'/>)
-      images.push(<Image src={img}/>)
+      let imgName = img[0]
+      let imgData = img[1]
+      images.push(<img src={"data:image/png;base64," + imgData} alt={imgName} width="800px" height="auto"/>)
+      //images.push(<img src={process.env.PUBLIC_URL + img} width="50%" height="auto"></img>)
     }
     for(let i=0;i<props.files.length;i++){
       let f = props.files[i]
       files.push(<File name={f[0]} data={f[1]}/>)
     }
     for(let i=0;i<props.comments.length;i++){
-      comments.push(<Comment text={props.comments[i]}/>)
+      let comment = props.comments[i]
+      comments.push(<Comment text={comment}/>)
     }
     for(let i=0;i<props.tags.length;i++){
       tags.push(props.tags[i])
@@ -154,28 +166,29 @@ function Post(props){
     return(<Container>
             <Row><div class="italic-large">Posted at {props.time} by {props.author}</div></Row>
             <Row>
-              <Col xs={12}>
+              <Col xs={1}></Col>
+              <Col xs={8}>
                 <Row>{images}</Row>
                 <Row>{files}</Row>
                 <Row>{comments}</Row>
                 <Tag tags={tags}/>
               </Col>
+              <Col xs={1}></Col>
             </Row>
            </Container>);
 };
 
-function Image(props){
-  let test = props.src.slice(1,props.src.length)
-  console.log(test)
-  return(<img src={process.env.PUBLIC_URL + test} width="50%" height="auto"></img>)
-}
+//function Image(props){
+//  console.log(process.env.PUBLIC_URL + props.src)
+//  return(<img src={process.env.PUBLIC_URL + props.src} width="50%" height="auto"></img>)
+//}
 
 
 function Log(props){
   let data = props.data
   let header = testingConfigToTable(data["operator"],data["configname"],data["comps"],data["specs"],true)
   return(
-    <Card style={{ width: '80rem' }}>
+    <Card style={{ width: '70rem' }}>
       <Card.Body>
         <Card.Title>{data["title"]}</Card.Title>
         <Card.Subtitle className="mb-2 text-muted">First Entry: {data["timestart"]}</Card.Subtitle>
@@ -199,7 +212,9 @@ function Entries(props){
   let i = 0
   for(i=0; i< entries.length; i++){
     let entry = entries[i]
-    result.push(<ListGroupItem><Post files={entry["files"]} images={entry["images"]} comments={entry["comments"]} time={entry["time"]} author={entry["author"]} tags={entry["tags"]}/></ListGroupItem>)
+    if(entry["comments"].length!=0){
+      result.push(<ListGroupItem><Post files={entry["files"]} images={entry["images"]} comments={entry["comments"]} time={entry["time"]} author={entry["author"]} tags={entry["tags"]}/></ListGroupItem>)
+    }
   }
   return result
 }
@@ -294,9 +309,30 @@ function ViewLog(props){
   }
 
   function saveAsPdf(){
+    //let element = document.getElementById("to-print")
+    //let worker = html2pdf().from(element).save();
+    //window.print()
 
+    var specialElementHandlers = {
+    '#editor': function (element, renderer) {
+    return true;
+    }
+    };
+
+    var doc = new jsPDF();
+
+    doc.fromHTML($('#to-print').html(), 15, 15, {
+
+    'width': 170,
+
+    'elementHandlers': specialElementHandlers
+
+    });
+
+    doc.save('sample-content.pdf');
   }
 
+  const ref = React.createRef();
 
   return(<div className="App">
       <Container>
@@ -307,10 +343,11 @@ function ViewLog(props){
               <Row>
               <Button id="back-button" variant="light" onClick={() => handleChange()}>Back</Button>
               <Button id="back-button" variant="light" onClick={() => saveAsPdf()}>Save as PDF</Button>
+              <PrintButton id={"to-print"} label={"Print page"} />
               <Line/>
               </Row>
               <Row>
-                <Log data={data} entries={entries} />
+                <div id="to-print"><Log data={data} entries={entries}/></div>
               </Row>
             </Container>
           </Col>
@@ -342,13 +379,91 @@ function getRecentLogIds(){
 }
 
 function AddLogEntry(props){
+  console.log(props.log)
+
+  //Has this log been written to?
+  let form = (<AppendForm log={props.log} oldFiles={[]} comment={""}/>);
+  let tags = (<div></div>);
+
+  let header = false;
+
+  $.ajax({
+    type: "POST",
+    url: "/header_exists",
+    dataType : "json",
+    async: false,
+    contentType: "application/json; charset=utf-8",
+    data : JSON.stringify({"log":currentLog}),
+    success: function(result){
+        header = result["exists"]
+    },
+    error: function(request, status, error){
+        console.log("Error");
+        console.log(request)
+        console.log(status)
+        console.log(error)
+    }
+  });
+
+
+
+  if(header===false){
+    form = (<TestConfiguration/>)
+  }else{
+    form = (<AppendForm log={"selected_log"} oldFiles={[]} comment={""} id="append-form"/>);
+    tags = (<TagDropdownBox/>)
+  }
+
+
+  let toggle = props.log.charAt(0).toUpperCase() + props.log.slice(1) + " Log"
+  let menu = []
+
+  var log_opt = ''
+  for(log_opt of list_of_logs){
+    let name = log_opt.charAt(0).toUpperCase() + log_opt.slice(1) + " Log";
+    let action = "#/write-to/" + log_opt.charAt(0).toLowerCase() + log_opt.slice(1) + "-log"
+    menu.push(<Dropdown.Item href={action}>{name}</Dropdown.Item>)
+  }
+
+  let logSelection = (<Dropdown>
+    <span>Adding to: </span>
+    <Dropdown.Toggle variant="secondary" id="dropdown-basic">
+      {toggle}
+    </Dropdown.Toggle>
+
+    <Dropdown.Menu>
+      {menu}
+    </Dropdown.Menu>
+  </Dropdown>);
+
+
+  let element = (
+    <Container>
+      <div id="info-group">
+        <Row> <Clock/> </Row>
+        <Row> <User username={glob_user}/></Row>
+      </div>
+      <Row>
+        <Col xs={4}>
+          {logSelection}
+        </Col>
+        <Col xs={3}>{tags}</Col>
+        <Col xs={3}><AutosaveLog/></Col>
+        <Col xs={2}><ManualSave/></Col>
+      </Row>
+      {form}
+    </Container>
+  );
+
+
+
   return (
     <div className="App">
       <Container>
         <Row>
           <Col xs={12}>
             <ElogNavbar/>
-            <WriteToLog log={props.log}/>
+            {element}
           </Col>
         </Row>
       </Container>
@@ -425,65 +540,6 @@ function change_autocommit(log,value){
   });
 }
 
-class WriteToLog extends React.Component{
-  constructor(props){
-    super(props)
-    this.state = {log:props.log, subsytem:query}
-    //Has this log been written to?
-    this.form = (<AppendForm log={props.log} oldFiles={[]} comment={""}/>);
-    this.tags = (<div></div>);
-
-    let header = false;
-
-    $.ajax({
-      type: "POST",
-      url: "/header_exists",
-      dataType : "json",
-      async: false,
-      contentType: "application/json; charset=utf-8",
-      data : JSON.stringify({"log":currentLog}),
-      success: function(result){
-          header = result["exists"]
-      },
-      error: function(request, status, error){
-          console.log("Error");
-          console.log(request)
-          console.log(status)
-          console.log(error)
-      }
-  });
-
-
-    console.log(header)
-
-    if(header===false){
-      this.form = (<TestConfiguration/>)
-    }else{
-      this.form = (<AppendForm log={"selected_log"} oldFiles={[]} comment={""} id="append-form"/>);
-      this.tags = (<TagDropdownBox id="tag-selection"/>)
-    }
-
-    this.element = (
-      <Container>
-        <div id="info-group">
-          <Row> <Clock/> </Row>
-          <Row> <User username={glob_user}/></Row>
-        </div>
-        <Row>
-          <Col xs={4}><LogDropdownBox log={this.state.log} prepend={"Adding Entry to: "}/></Col>
-          <Col xs={3}>{this.tags}</Col>
-          <Col xs={3}><AutosaveLog/></Col>
-          <Col xs={2}><ManualSave/></Col>
-        </Row>
-        {this.form}
-      </Container>
-    );
-  }
-
-  render(){
-    return this.element
-  }
-}
 
 function addTestConfiguration(log,operator,name,pnames,pconfigs){
   //window.location.reload(false);
@@ -911,6 +967,7 @@ function AppendForm(props) {
             name="comment"
             placeholder= {comment}
             defaultValue=""
+            id="enter-comment"
           />
         </Form.Group>
       </Form.Row>
@@ -933,11 +990,13 @@ function appendEntry(log,author,entryFiles,entryImages,comment,isAppended){
 
   for(var i=0;i<entryImages.length;i++){
     let thisImage = entryImages[i]
-    sentImages.push(thisImage["name"])
+    console.log(btoa(thisImage["storedData"]))
+    sentImages.push([thisImage["name"], btoa(thisImage["storedData"])])
   }
 
   //window.location.reload(false);
-  query = {"log":log, "author":author, "files":sentFiles, "images":sentImages, "comment":comment, "isAppended":isAppended, "tag":[query]}
+  let tag = query.replace("_"," ")
+  query = {"log":log, "author":author, "files":sentFiles, "images":sentImages, "comment":comment, "isAppended":isAppended, "tag":[tag]}
   //return;
   $.ajax({
     type: "POST",
@@ -974,27 +1033,31 @@ function appendEntry(log,author,entryFiles,entryImages,comment,isAppended){
     data.append('filename',thisImage["name"])
     data.append('log',currentLog)
 
-    fetch('http://localhost:4000/upload', {
+    //uploadImage(data)
+    //uploadImage2(data)
+    fetch('http://localhost:4040/upload', {
       method: 'POST',
       body: data,
     }).then((response) => {
       response.json().then((body) => {
-        this.setState({ imageURL: `http://localhost:4000/${body.file}` });
+        this.setState({ imageURL: `http://localhost:4040/${body.file}` });
       });
     });
-
-    fetch('http://localhost:4000/upload2', {
-      method: 'POST',
-      body: data,
-    }).then((response) => {
-      response.json().then((body) => {
-        this.setState({ imageURL: `http://localhost:4000/${body.file}` });
-      });
-    });
-
   }
 
 }
+
+async function uploadImage(data){
+  fetch('http://localhost:4040/upload', {
+      method: 'POST',
+      body: data,
+    }).then((response) => {
+      response.json().then((body) => {
+        this.setState({ imageURL: 'http://localhost:4040/${body.file}' });
+      });
+    });
+}
+
 
 function AutosaveLog(props) {
   const [checked, setChecked] = useState(false);
@@ -1084,6 +1147,7 @@ function AutosaveLog(props) {
 
 class LogDropdownBox extends React.Component{
   constructor(props){
+    console.log(props.log)
     super(props)
     let toggle = props.log.charAt(0).toUpperCase() + props.log.slice(1) + " Log"
     let menu = []
@@ -1091,7 +1155,7 @@ class LogDropdownBox extends React.Component{
     var log_opt = ''
     for(log_opt of list_of_logs){
       let name = log_opt.charAt(0).toUpperCase() + log_opt.slice(1) + " Log";
-      let action = "#/write-to/" + log_opt + "-log"
+      let action = "#/write-to/" + log_opt.charAt(0).toLowerCase() + log_opt.slice(1) + "-log"
       menu.push(<Dropdown.Item href={action}>{name}</Dropdown.Item>)
     }
     this.state = {toggle:toggle,menu:menu,prepend:props.prepend}
@@ -1117,11 +1181,13 @@ function TagDropdownBox(props){
   console.log(query.length)
   if(query.length>1){
     selection=query.slice(0,1).toUpperCase() + query.slice(1)
+    selection = selection.replace("_"," ")
   }
   let items = []
   let tag_selections = glob_tags[currentLog]
   for(let i=0; i<tag_selections.length; i++){
-    items.push(<Dropdown.Item href={rootUrl + "?" + tag_selections[i]}>{tag_selections[i]}</Dropdown.Item>)
+    let tagUrl = tag_selections[i].replace(" ","_")
+    items.push(<Dropdown.Item href={rootUrl + "?" + tagUrl}>{tag_selections[i]}</Dropdown.Item>)
   }
   return(
     <Dropdown>
@@ -1261,8 +1327,6 @@ function FileDrop(props) {
     uploadedImages.push(img)
   }
 
-  console.log(shortcutImages)
-
   function handleChange(name){
     for(var i = 0; i < shownFiles.length;i++){
       if (shownFiles[i].name===name) {
@@ -1363,7 +1427,6 @@ async function myCustomFileGetter(event) {
     reader.onload = () => {
     // Do whatever you want with the file contents
       const res = reader.result
-      console.log(res)
       Object.assign(file, {
         storedData: res
       })
@@ -1377,6 +1440,8 @@ async function myCustomFileGetter(event) {
       uploadedImages.push(file)
       files.push(file);
       shownFiles.push(file)
+
+      reader.readAsBinaryString(file)
     }
     if(file.name.endsWith(".txt") || file.name.endsWith(".csv")){
       uploadedFiles.push(file)
@@ -1394,11 +1459,11 @@ async function myCustomFileGetter(event) {
 function ElogNavbar(props){
   return (<Navbar bg="primary" variant="dark">
             <Nav className="mr-auto">
-              <Nav.Link href="#/write-to/testing-log">Add Log Entry</Nav.Link>
+              <Nav.Link href="#/write-to/operations-log">Add Log Entry</Nav.Link>
               <Nav.Link href="#/view/recent-logs">Recent Logs</Nav.Link>
               <Nav.Link href="#search">Search</Nav.Link>
             </Nav>
-            <Navbar.Brand href="#/write-to/testing-log">Lyncean Elog</Navbar.Brand>
+            <Navbar.Brand href="#/write-to/operations-log">Lyncean Elog</Navbar.Brand>
           </Navbar>);
 }
 
@@ -1465,5 +1530,65 @@ let User = function(props){
 let Line = function(props){
   return (<div/>);
 }
+
+const pxToMm = (px) => {
+  return Math.floor(px/document.getElementById('myMm').offsetHeight);
+};
+
+const mmToPx = (mm) => {
+  return document.getElementById('myMm').offsetHeight*mm;
+};
+
+const range = (start, end) => {
+    return Array(end-start).join(0).split(0).map(function(val, id) {return id+start});
+};
+
+
+const PrintButton = ({id, label}) => (<div className="tc mb4 mt2">
+  {/*
+    Getting pixel height in milimeters:
+    https://stackoverflow.com/questions/7650413/pixel-to-mm-equation/27111621#27111621
+  */}
+  <div id="myMm" style={{height: "1mm"}} />
+
+
+  <div
+    className="pa2 ba bw1 b--black bg-yellow black-90 br2 dib pointer dim shadow-1"
+    onClick={() => {
+      const input = document.getElementById(id);
+      const inputHeightMm = pxToMm(input.offsetHeight);
+      const a4WidthMm = 210;
+      const a4HeightMm = 297;
+      const a4HeightPx = mmToPx(a4HeightMm);
+      const numPages = inputHeightMm <= a4HeightMm ? 1 : Math.floor(inputHeightMm/a4HeightMm) + 1;
+      console.log({
+        input, inputHeightMm, a4HeightMm, a4HeightPx, numPages, range: range(0, numPages),
+        comp: inputHeightMm <= a4HeightMm, inputHeightPx: input.offsetHeight
+      });
+
+
+      html2canvas(input)
+        .then((canvas) => {
+          const imgData = canvas.toDataURL('image/png');
+          let pdf = null
+
+          // Document of a4WidthMm wide and inputHeightMm high
+          if (inputHeightMm > a4HeightMm) {
+            // elongated a4 (system print dialog will handle page breaks)
+            pdf = new jsPDF('p', 'mm', [inputHeightMm+16, a4WidthMm]);
+          } else {
+            // standard a4
+            pdf = new jsPDF();
+          }
+
+          pdf.addImage(imgData, 'PNG', 0, 0);
+          pdf.save(`${id}.pdf`);
+        });
+      ;
+    }}
+  >
+    {label}
+  </div>
+</div>);
 
 export default App;
