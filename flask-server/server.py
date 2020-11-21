@@ -13,13 +13,12 @@ app = Flask(__name__)
 
 cursor = None
 db = None
-curr_log = "electronics"
+curr_log = None
 curr_entryId = 0
 curr_logId = 0
 curr_appendedId = 0
-logIds = {"electronics":1}
+logIds = {"electronics":1,"operations":2}
 database_path = 'data/elog'
-UPLOAD_FOLDER = "C:/Users/benja/Desktop/work/elog1.0/react-app/public/uploads/"
 CONFIG_FOLDER = "C:/Users/benja/Desktop/work/elog1.0/config/configs.txt"
 COMMON_FOLDER = "C:/Users/benja/Desktop/work/elog1.0/common/"
 
@@ -51,7 +50,7 @@ def createDatabase():
   ''')
   print("created table: tag")
   cursor.execute('''
-    CREATE TABLE image(path TEXT, entry INTEGER, appended INTEGER)
+    CREATE TABLE image(name TEXT, base64 TEXT , entry INTEGER, appended INTEGER)
   ''')
   print("created table: image")
   cursor.execute('''
@@ -164,8 +163,7 @@ def commitLog(log):
   cursor,db = getCursor()
   now = datetime.now()
   #Get ID of log
-  numcommits = getNumCommits(log)
-  logId = now.strftime("%Y%m%d") + str(logIds[log]) + str(numcommits)
+  logId = getOpenLogId(log)
   #Commit old log
   date_time = now.strftime("%Y/%m/%d, %H:%M:%S")
   update = "UPDATE log SET committed=? WHERE id=?;"
@@ -222,14 +220,10 @@ def getNumCommits(log):
 
 def addEntry(author,log):
   cursor,db = getCursor()
+  global curr_log
   curr_log = log
   global curr_entryId
-  #Get time
-  now = datetime.now()
-  date_time = now.strftime("%Y/%m/%d, %H:%M:%S")
-  #Get ID of log
-  numcommits = getNumCommits(log)
-  logId = now.strftime("%Y%m%d") + str(logIds[log]) + str(numcommits)
+  logId = getOpenLogId(log)
   #Get ID of entry
   fetchIds()
   curr_entryId+=1
@@ -244,6 +238,13 @@ def addEntry(author,log):
   db.commit()
   print("inserted new entry into entry table")
   return entryId,logId
+
+def getOpenLogId(log):
+  #log log(id INTEGER PRIMARY KEY, title TEXT, logtype TEXT,committed TEXT, header INTEGER)
+  cursor,db = getCursor()
+  select = 'SELECT MAX(id) FROM log WHERE logtype="' + log + '";'
+  for row in cursor.execute(select):
+    return row[0]
 
 def addTestConfiguration(log,operator,name,pnames,pconfigs):
   cursor,db = getCursor()
@@ -343,35 +344,24 @@ def saveFile(file,log):
   newFile.write(data)
   newFile.close()
 
-def saveImage(img,log):
-  name = img[0]
-  url = img[1]
-  now = datetime.now()
-  date = now.strftime("/%Y/%m/%d/")
-  directory = "C:\\Users\\benja\\Desktop\\work\\elog1.0\\common\\" + str(log) + date
-  path = directory + name
-
-  # fake user agent of Safari
-  fake_useragent = 'Mozilla/5.0 (iPad; CPU OS 6_0 like Mac OS X) AppleWebKit/536.26 (KHTML, like Gecko) Version/6.0 Mobile/10A5355d Safari/8536.25'
-  r = urllib.request.Request(url, headers={'User-Agent': fake_useragent})
-  f = urllib.request.urlopen(r)
-  data = f.read()
-  newFile = open(path, 'wb')
-  newFile.write(b)
-  return path
-
 def addImage(img,log,entryId,appendedId):
+  print("img:")
+  print(img[0])
+  print("data:")
+  print(img[1])
+  name = img[0]
+  data = img[1]
+  global curr_log
   cursor,db = getCursor()
   now = datetime.now()
   date = now.strftime("/%Y/%m/%d/")
   log = curr_log
-  print(img)
-  path = "./uploads/" + str(log) + date + img
+  #path = "/uploads/" + str(log) + date + img
   insert = '''
-          INSERT INTO IMAGE (PATH,ENTRY,APPENDED)
-          VALUES (?, ?, ?);
+          INSERT INTO IMAGE (NAME,BASE64,ENTRY,APPENDED)
+          VALUES (?, ?, ?, ?);
           '''
-  data_tuple = (path,entryId,appendedId)
+  data_tuple = (name,data,entryId,appendedId)
   cursor.execute(insert, data_tuple)
   db.commit()
   print("inserted new image into image table")
@@ -404,21 +394,14 @@ def addTag(tag,entryId):
 def getRecentLogData():
   cursor,db = getCursor()
   ids = []
-
   end_date = datetime.today() + timedelta(days=1)
   start_date = datetime.today() - timedelta(days=7)
   start_id = start_date.strftime("%Y%m%d") + "00"
   end_id = end_date.strftime("%Y%m%d") + "00"
-
   for row in cursor.execute('SELECT id FROM log WHERE committed IS NULL AND header IS NOT NULL'):
     ids.append(row[0])
-
-  print(start_id)
-  print(end_id)
-
   for row in cursor.execute('SELECT id FROM log WHERE committed IS NOT NULL AND id>=? AND ?>=id;',(start_id,end_id)):
     ids.append(row[0])
-
   return ids
 
 def getLogData(logId):
@@ -459,8 +442,8 @@ def getEntries(logId):
     entryId = entry["id"]
     for row in cursor.execute('SELECT name,data FROM file WHERE entry=?;',[entryId]):
       entry["files"].append([row[0],row[1]])
-    for row in cursor.execute('SELECT path FROM image WHERE entry=?;',[entryId]):
-      entry["images"].append(row[0])
+    for row in cursor.execute('SELECT name,base64 FROM image WHERE entry=?;',[entryId]):
+      entry["images"].append([row[0],row[1]])
     entry["comments"] = []
     for row in cursor.execute('SELECT text FROM comment WHERE entry=?;',[entryId]):
       entry["comments"].append(row[0])
@@ -620,13 +603,9 @@ def header_exists():
   #try:
   log = query['log']
   does = True
-  #Get time
-  now = datetime.now()
-  date_time = now.strftime("%Y/%m/%d, %H:%M:%S")
-  #Get ID of log
-  print(log)
-  numcommits = getNumCommits(log)
-  logId = int(now.strftime("%Y%m%d") + str(logIds[log]) + str(numcommits))
+  curr_log = log
+  logId = getOpenLogId(log)
+  print("Log id: " + str(logId))
   #Check whether header exists
   doesExist = headerExists(logId)
   #except:
@@ -675,6 +654,7 @@ def get_configs():
 
 @app.route('/upload', methods=['POST'])
 def fileUpload():
+    global curr_log
     now = datetime.now()
     date = now.strftime("/%Y/%m/%d/")
     file = request.files['file']
@@ -686,23 +666,7 @@ def fileUpload():
     destination="/".join([target, filename])
     file.save(destination)
     response = "success?"
-    return response
-
-@app.route('/upload2', methods=['POST'])
-def fileUpload2():
-    now = datetime.now()
-    date = now.strftime("/%Y/%m/%d/")
-    file = request.files['file']
-    filename = file.filename
-    log = curr_log
-    target = UPLOAD_FOLDER + str(log) + date
-    if not os.path.isdir(target):
-        os.mkdir(target)
-    destination="/".join([target, filename])
-    file.save(destination)
-    response = "success?"
-    return response
-
+    return responseS
 
 def getConfigNames():
   names = []
@@ -764,4 +728,4 @@ if __name__ == '__main__':
     setUpDatabase()
   else:
     createDatabase()
-  app.run(port=int("4000"), debug = True)
+  app.run(port=int("4040"), debug = True)

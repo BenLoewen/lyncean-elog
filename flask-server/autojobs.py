@@ -5,11 +5,15 @@ import sqlite3
 from datetime import datetime
 import time
 from urllib.request import urlopen
+import os
 app = Flask(__name__)
 
 cursor = None
 db = None
-logIds = {"electronics":1}
+logIds = {"electronics":1, "operations": 2}
+UPLOAD_FOLDER = "C:/Users/benja/Desktop/work/elog1.0/react-app/public/uploads/"
+CONFIG_FOLDER = "C:/Users/benja/Desktop/work/elog1.0/config/configs.txt"
+COMMON_FOLDER = "C:/Users/benja/Desktop/work/elog1.0/common/"
 
 
 def openDatabase():
@@ -60,6 +64,26 @@ def deleteUnusedLogs():
           WHERE ;
           '''
 
+def createDailyFolders():
+  now = datetime.now()
+  now2 = datetime.now
+  date = now.strftime("%Y/%m/%d")
+  date_parts = date.split('/')
+  for log in logIds:
+    upload = UPLOAD_FOLDER + str(log)
+    common = COMMON_FOLDER + str(log)
+    if not os.path.isdir(upload):
+      os.mkdir(upload)
+    if not os.path.isdir(common):
+        os.mkdir(common)
+    for date_part in date_parts:
+      upload += '/' + date_part
+      common += '/' + date_part
+      if not os.path.isdir(upload):
+          os.mkdir(upload)
+      if not os.path.isdir(common):
+          os.mkdir(common)
+
 def createTodaysLogs():
   global cursor
   global db
@@ -69,13 +93,14 @@ def createTodaysLogs():
   date_id = now.strftime("%Y%m%d")
   print("creating logs for " + date + " ...")
   for log in logIds:
+    logName = log.capitalize()
     if autocommitLog[log] == True:
       id = date_id + str(logIds[log]) + str(0)
       insert = '''
-            INSERT INTO LOG (TITLE,ID,COMMITTED,HEADER)
-            VALUES (?, ?, NULL, NULL);
+            INSERT INTO LOG (TITLE,ID,LOGTYPE,COMMITTED,HEADER)
+            VALUES (?, ?, ?, NULL, NULL);
             '''
-      data_tuple = (log + " Log " + date, int(id))
+      data_tuple = (logName + " Log " + date, int(id), log)
       cursor.execute(insert, data_tuple)
       print("started " + log + " log")
     else:
@@ -88,6 +113,7 @@ def createTodaysLogs():
 if __name__ == '__main__':
   print("starting autojobs...")
   openDatabase()
+  createDailyFolders()
   createTodaysLogs()
   resetCommits()
   closeDatabase()
