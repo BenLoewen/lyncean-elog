@@ -42,7 +42,7 @@ def autocommitLogs():
       shouldCommit = row[0]
       autocommitLog[log] = shouldCommit
       if shouldCommit:
-        update = "UPDATE log SET committed=? WHERE logtype=? AND committed=NULL;"
+        update = "UPDATE log SET committed=? WHERE logtype=? AND committed IS NULL;"
         data_tuple = (date_time,log)
         cursor.execute(update,data_tuple)
   db.commit()
@@ -59,10 +59,13 @@ def resetCommits():
 def deleteUnusedLogs():
   global cursor
   global db
-  insert = '''
+  delete = '''
           DELETE FROM log
-          WHERE ;
+          WHERE header is NULL;
           '''
+  cursor.execute(delete)
+  db.commit()
+  print("deleted unused logs")
 
 def createDailyFolders():
   now = datetime.now()
@@ -94,7 +97,7 @@ def createTodaysLogs():
   print("creating logs for " + date + " ...")
   for log in logIds:
     logName = log.capitalize()
-    if autocommitLog[log] == True:
+    if autocommitLog[log] == 1:
       id = date_id + str(logIds[log]) + str(0)
       insert = '''
             INSERT INTO LOG (TITLE,ID,LOGTYPE,COMMITTED,HEADER)
@@ -110,10 +113,12 @@ def createTodaysLogs():
   print('...')
 
 
+
 if __name__ == '__main__':
   print("starting autojobs...")
   openDatabase()
   createDailyFolders()
+  deleteUnusedLogs()
   createTodaysLogs()
   resetCommits()
   closeDatabase()
