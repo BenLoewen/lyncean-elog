@@ -22,6 +22,7 @@ import Navbar from 'react-bootstrap/Navbar'
 import ButtonGroup from 'react-bootstrap/ButtonGroup'
 import ToggleButton from 'react-bootstrap/ToggleButton'
 import Table from 'react-bootstrap/Table'
+import Modal from 'react-bootstrap/Modal'
 import CardGroup from 'react-bootstrap/CardGroup'
 import 'bootstrap/dist/css/bootstrap.min.css';
 import ListGroup from 'react-bootstrap/ListGroup'
@@ -29,12 +30,11 @@ import ListGroupItem from 'react-bootstrap/ListGroupItem'
 import $ from "jquery";
 import DropdownMenu from 'react-bootstrap/esm/DropdownMenu';
 import DropdownButton from 'react-bootstrap/DropdownButton'
+import DatePicker from "react-datepicker";
 import { saveAs } from 'file-saver';
 import request from "superagent";
 import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
-import ReactPDF from '@react-pdf/renderer';
-import html2pdf from 'html2pdf.js'
+import "react-datepicker/dist/react-datepicker.css";
 
 let buttonId = 0
 let iter = 0
@@ -53,12 +53,14 @@ let testing_config_entered = true;
 let currentLog = ""
 let rootUrl = ""
 let headerExists = {}
+let appendingToPost = false
+let enteringTestConfig = false
 
 let test_id = 0
 
 //Global variables
 let glob_user = "operator"
-let glob_tags = {"electronics":["MUX","MtrCntrl","Sync","InjLsFdbk","PwrMtr","LLRF","RFPPA","VacRad","SbandAmp","UniPolar","BiPolar","BPM","TSDG", "Magnets", "Mod"],"operations":["Gun Test","Load Test","Structure Test","Module Test"]}
+let glob_tags = {"electronics":["MUX","MtrCntrl","Sync","InjLsFdbk","PwrMtr","LLRF","RFPPA","VacRad","SbandAmp","UniPolar","BiPolar","BPM","TSDG", "Magnets", "Mod","None"],"operations":["Gun Test","Load Test","Structure Test","Module Test","None"]}
 
 
 function App() {
@@ -76,6 +78,12 @@ function App() {
   lastUrl = currUrl
   const element = <h1></h1>;
 
+  //Set user based on cookies
+  glob_user = getCookie("username")
+  if(glob_user==""){
+    glob_user="operator"
+  }
+
   if(currUrl.indexOf("#/write-to/")==0){
     let log_ind = currUrl.indexOf('-log')
     currentLog = currUrl.slice(11,log_ind)
@@ -86,6 +94,9 @@ function App() {
   }
   else if(currUrl.indexOf("#/view/log")==0){
     return(<ViewLog/>);
+  }
+  else if(currUrl.indexOf("#/search-logs")==0){
+    return(<SearchLogs/>)
   }
   else{
     console.log(currUrl)
@@ -122,13 +133,16 @@ function tick(){
     }
     else if(currUrl.indexOf("#/view/log")==0){
       ReactDOM.render(<ViewLog/>, document.getElementById('root'));
-      if(prev_query!=query){
-        window.location.reload(false);
-      }
+      //if(prev_query!=query){
+      //  window.location.reload(false);
+      //}
+    }
+    else if(currUrl.indexOf("#/search-logs")==0){
+      ReactDOM.render(<SearchLogs/>, document.getElementById('root'));
     }
     else{
       ReactDOM.render(element, document.getElementById('root'));
-      window.location.reload(false);
+      //window.location.reload(false);
     }
     lastUrl = currUrl;
   }
@@ -139,6 +153,346 @@ function tick(){
 }
 
 setInterval(tick, 100);
+
+function setCookie(cname, cvalue, exdays) {
+  var d = new Date();
+  d.setTime(d.getTime() + (exdays*24*60*60*1000));
+  var expires = "expires="+ d.toUTCString();
+  document.cookie = cname + "=" + cvalue + ";" + expires + ";path=/";
+}
+
+function getCookie(cname) {
+  var name = cname + "=";
+  var decodedCookie = decodeURIComponent(document.cookie);
+  var ca = decodedCookie.split(';');
+  for(var i = 0; i <ca.length; i++) {
+    var c = ca[i];
+    while (c.charAt(0) == ' ') {
+      c = c.substring(1);
+    }
+    if (c.indexOf(name) == 0) {
+      return c.substring(name.length, c.length);
+    }
+  }
+  return "";
+}
+
+class SearchLogs extends React.Component{
+  constructor(props){
+    super(props)
+  }
+
+  render(){
+    return (
+      <div className="App">
+        <Container>
+          <ElogNavbar/>
+          <Row id="push">
+            <Col xs={4}>
+              <Row>
+                <div class="spaced-out">
+                  <SelectLog log={"All Logs"}/>
+                </div>
+              </Row>
+              <Row>
+                <EnterConfig/>
+              </Row>
+              <Row>
+                <SearchLogButton/>
+              </Row>
+            </Col>
+            <Col xs={4}>
+              <div class="spaced-out">
+                <SelectStartDate/>
+              </div>
+            </Col>
+            <Col xs={4}>
+              <div class="spaced-out">
+                <SelectEndDate/>
+              </div>
+            </Col>
+          </Row>
+          <Row>
+            <div id="results-title">
+              Results
+            </div>
+          </Row>
+          <Row>
+            <Container id="results">
+
+            </Container>
+          </Row>
+        </Container>
+      </div>
+    );
+  }
+}
+
+function EnterConfig(props){
+  return(<div>
+          <div id="enter-config">
+            Configuration Name
+          </div>
+          <Form>
+            <Form.Group controlId="formConfigName">
+              <Form.Control id="configName" />
+            </Form.Group>
+          </Form>
+         </div>);
+}
+
+function SearchLogButton(props){
+
+  function submit(){
+    let config_name = $("#configName").val()
+    let query_parts = query.split(",")
+    let now = new Date();
+    let end_date = now.toISOString().slice(0,10);
+    now.setDate(1)
+    let start_date = now.toISOString().slice(0,10)
+    console.log(end_date)
+    console.log(start_date)
+    let log = "all"
+    for(var i=0; i<query_parts.length; i++){
+      let part = query_parts[i].split("=")
+      if(part[0]=="start"){
+        start_date = part[1]
+      }
+      else if(part[0]=="end"){
+        end_date = part[1]
+      }
+      else if(part[0]=="log"){
+        log = part[1]
+      }
+    }
+    searchLogs(start_date,end_date,log,config_name)
+  }
+
+  return(<Button variant="primary" onClick={() => submit()}>
+          Search
+         </Button>);
+
+}
+
+async function searchLogs(start_date, end_date, log, config_name){
+  let searchQuery = {"start_date":start_date,"end_date":end_date,"log":log,"config_name":config_name}
+  console.log(searchQuery)
+  let ids = []
+
+  $.ajax({
+    type: "POST",
+    url: "/search_logs",
+    dataType : "json",
+    async: false,
+    contentType: "application/json; charset=utf-8",
+    data : JSON.stringify(searchQuery),
+    success: function(result){
+        ids = result["results"]
+    },
+    error: function(request, status, error){
+        console.log("Error");
+        console.log(request)
+        console.log(status)
+        console.log(error)
+    }
+  })
+
+  let items = []
+  let data = {}
+
+  for(let i=0;i<ids.length;i++){
+    let thisId = ids[i]
+    $.ajax({
+      type: "GET",
+      url: "/get_log/" + thisId,
+      dataType : "json",
+      async: false,
+      contentType: "application/json; charset=utf-8",
+      //data : JSON.stringify(thisId),
+      success: function(result){
+          data = result["data"]
+      },
+      error: function(request, status, error){
+          console.log("Error");
+          console.log(request)
+          console.log(status)
+          console.log(error)
+      }
+    })
+
+    console.log(data)
+
+    let text = testingConfigToTable(data["operator"],data["configname"],[],[],false)
+    let title = data["title"]
+    let id = ids[i]
+    let updated = data["timestop"]
+
+    items.push(<LogCard text={text} title={title} id={id} updated={updated}/>);
+  }
+
+  let logCards = []
+  for(let i=0; i<items.length;i+=3){
+    let item_set = []
+    item_set.push(items[i])
+    item_set.push(items[i+1])
+    item_set.push(items[i+2])
+    logCards.push(<Row>{item_set}</Row>)
+  }
+
+  ReactDOM.render(<div class="card-deck">{logCards}</div>,document.getElementById("results"))
+
+}
+
+
+const SelectStartDate = () => {
+  var ourDate = new Date();
+  ourDate.setDate(1)
+  const [startDate, setStartDate] = useState(ourDate);
+
+  let changeDate= function(date){
+    setStartDate(date)
+    let strDate = date.toISOString().slice(0,10);
+    let new_query=query.split(",")
+    if(query.length===0){
+      new_query = []
+    }
+    console.log(new_query)
+    let start_date_in_query = false
+    for(var i=0; i<new_query.length;i++){
+      let part = new_query[i].split("=")
+      if(part[0]==="start"){
+        new_query[i] = "start=" + strDate
+        start_date_in_query = true
+      }
+    }
+    if(!start_date_in_query){
+      new_query.push("start=" + strDate)
+    }
+    window.location.href = rootUrl + "?" + new_query.join(",")
+  }
+
+  return (
+    <div>
+      <Row>
+      <div>Start Date</div>
+      </Row>
+      <Row>
+        <DatePicker selected={startDate} onChange={date => changeDate(date)} />
+      </Row>
+    </div>
+  );
+};
+
+const SelectEndDate = () => {
+  const [startDate, setStartDate] = useState(new Date());
+
+  let changeDate= function(date){
+    setStartDate(date)
+    let strDate = date.toISOString().slice(0,10);
+    let new_query=query.split(",")
+    if(query.length===0){
+      new_query = []
+    }
+    console.log(new_query)
+    let end_date_in_query = false
+    for(var i=0; i<new_query.length;i++){
+      let part = new_query[i].split("=")
+      if(part[0]==="end"){
+        new_query[i] = "end=" + strDate
+        end_date_in_query = true
+      }
+    }
+    if(!end_date_in_query){
+      new_query.push("end=" + strDate)
+    }
+    window.location.href = rootUrl + "?" + new_query.join(",")
+  }
+
+  return (
+    <div>
+      <Row>
+        <div>End Date </div>
+      </Row>
+      <Row>
+        <DatePicker selected={startDate} onChange={date => changeDate(date)} />
+      </Row>
+    </div>
+  );
+};
+
+class SelectLog extends React.Component{
+  constructor(props){
+    console.log(props.log)
+    super(props)
+    let toggle = props.log.charAt(0).toUpperCase() + props.log.slice(1)
+    let menu = []
+
+    var log_opt = ''
+    for(log_opt of list_of_logs){
+      let eventKey = log_opt.charAt(0).toLowerCase() + log_opt.slice(1);
+      let name = log_opt.charAt(0).toUpperCase() + log_opt.slice(1);
+      menu.push(<Dropdown.Item eventKey={eventKey}>{name}</Dropdown.Item>)
+    }
+    menu.push(<Dropdown.Item eventKey={"all"}>{"All Logs"}</Dropdown.Item>)
+    this.handleSelect = this.handleSelect.bind(this)
+
+    let split_query = query.split(",")
+    for(var i=0; i<split_query.length;i++){
+      let part = split_query[i].split("=")
+      console.log(part)
+      console.log(part[0]=="log")
+      console.log(part[0]==='log')
+      if(part[0]==="log"){
+        toggle = part[1].charAt(0).toUpperCase() + part[1].slice(1)
+      }
+    }
+
+    this.state = {toggle:toggle,menu:menu}
+
+  }
+
+  handleSelect(key){
+    console.log(key)
+    let new_query=query.split(",")
+    if(query.length===0){
+      new_query = []
+    }
+    console.log(new_query)
+    let log_in_query = false
+    for(var i=0; i<new_query.length;i++){
+      let part = new_query[i].split("=")
+      if(part[0]==="log"){
+        new_query[i] = "log=" + key
+        log_in_query = true
+      }
+    }
+    if(!log_in_query){
+      new_query.push("log=" + key)
+    }
+    window.location.href = rootUrl + "?" + new_query.join(",")
+    let newToggle = key.charAt(0).toUpperCase() + key.slice(1)
+    this.setState({toggle:newToggle,menu:this.state.menu})
+  }
+
+  render(){
+    return(<div>
+            <Row>
+              <div id='select-log'>Select Log</div>
+            </Row>
+            <Dropdown id="dropdown-left" onSelect={this.handleSelect}>
+              <Dropdown.Toggle variant="secondary" id="dropdown-basic">
+                {this.state.toggle}
+              </Dropdown.Toggle>
+
+              <Dropdown.Menu>
+                {this.state.menu}
+              </Dropdown.Menu>
+            </Dropdown>
+          </div>);
+  }
+}
+
+
 
 function Post(props){
     let images = []
@@ -158,7 +512,7 @@ function Post(props){
     }
     for(let i=0;i<props.comments.length;i++){
       let comment = props.comments[i]
-      comments.push(<Comment text={comment}/>)
+      comments.push(<Row><Comment text={comment[0]} appendedText={comment[1]}/></Row>)
     }
     for(let i=0;i<props.tags.length;i++){
       tags.push(props.tags[i])
@@ -170,7 +524,7 @@ function Post(props){
               <Col xs={8}>
                 <Row>{images}</Row>
                 <Row>{files}</Row>
-                <Row>{comments}</Row>
+                {comments}
                 <Tag tags={tags}/>
               </Col>
               <Col xs={1}></Col>
@@ -199,8 +553,6 @@ function Log(props){
           </ListGroupItem>
           <Entries entries={props.entries}/>
         </ListGroup>
-        <Card.Link href="#">Previous Day's Log</Card.Link>
-        <Card.Link href="#">Next Day's Log</Card.Link>
       </Card.Body>
     </Card>
   )
@@ -213,10 +565,57 @@ function Entries(props){
   for(i=0; i< entries.length; i++){
     let entry = entries[i]
     if(entry["comments"].length!=0){
-      result.push(<ListGroupItem><Post files={entry["files"]} images={entry["images"]} comments={entry["comments"]} time={entry["time"]} author={entry["author"]} tags={entry["tags"]}/></ListGroupItem>)
+      result.push(<ListGroupItem>
+                    <Row>
+                      <Col xs={10}>
+                        <Post id={entry["id"]} files={entry["files"]} images={entry["images"]} comments={entry["comments"]} time={entry["time"]} author={entry["author"]} tags={entry["tags"]}/>
+                      </Col>
+                      <Col xs={2}>
+                      </Col>
+                    </Row>
+                    <Row>
+                      <Col xs={10}>
+                        <Container id={entry["id"]}>
+
+                        </Container>
+                      </Col>
+                      <Col xs={2}>
+                        <Container id={entry["id"] + "button"} class="wrapper-container">
+                          <div class="vertical-bottom"><AppendButton entryId={entry["id"]} /></div>
+                        </Container>
+                      </Col>
+                    </Row>
+                  </ListGroupItem>)
     }
   }
   return result
+}
+
+function AppendButton(props){
+  let entryId = props.entryId
+  let appendForm = (<AppendForm oldFiles={[]} comment={""} newPost={false} entryId={entryId}/>)
+
+  function handleChange(){
+    if(!appendingToPost){
+      appendingToPost = true
+      ReactDOM.render(appendForm, document.getElementById(entryId));
+      ReactDOM.render(<CancelButton entryId={entryId}/>, document.getElementById(entryId + "button"));
+    }
+  }
+
+  return(<Button variant="outline-secondary" onClick={() => handleChange()}>Append To</Button>)
+}
+
+function CancelButton(props){
+  let entryId = props.entryId
+
+  function handleChange(){
+    appendingToPost = false
+    ReactDOM.render(<div></div>, document.getElementById(entryId));
+    ReactDOM.render(<AppendButton id="append-button" entryId={entryId}/>, document.getElementById(entryId + "button"));
+  }
+
+  return(<Button variant="outline-secondary" onClick={() => handleChange()}>Cancel</Button>)
 }
 
 function getLogData(id){
@@ -305,34 +704,9 @@ function ViewLog(props){
 
   function handleChange(){
     window.location.href = "#/view/recent-logs"
-    window.location.reload(false);
+    ReactDOM.render(<RecentLogs/>, document.getElementById('root'));
   }
 
-  function saveAsPdf(){
-    //let element = document.getElementById("to-print")
-    //let worker = html2pdf().from(element).save();
-    //window.print()
-
-    var specialElementHandlers = {
-    '#editor': function (element, renderer) {
-    return true;
-    }
-    };
-
-    var doc = new jsPDF();
-
-    doc.fromHTML($('#to-print').html(), 15, 15, {
-
-    'width': 170,
-
-    'elementHandlers': specialElementHandlers
-
-    });
-
-    doc.save('sample-content.pdf');
-  }
-
-  const ref = React.createRef();
 
   return(<div className="App">
       <Container>
@@ -342,8 +716,6 @@ function ViewLog(props){
             <Container>
               <Row>
               <Button id="back-button" variant="light" onClick={() => handleChange()}>Back</Button>
-              <Button id="back-button" variant="light" onClick={() => saveAsPdf()}>Save as PDF</Button>
-              <PrintButton id={"to-print"} label={"Print page"} />
               <Line/>
               </Row>
               <Row>
@@ -382,7 +754,7 @@ function AddLogEntry(props){
   console.log(props.log)
 
   //Has this log been written to?
-  let form = (<AppendForm log={props.log} oldFiles={[]} comment={""}/>);
+  let form = (<AppendForm log={props.log} oldFiles={[]} comment={""} newPost={true}/>);
   let tags = (<div></div>);
 
   let header = false;
@@ -410,7 +782,7 @@ function AddLogEntry(props){
   if(header===false){
     form = (<TestConfiguration/>)
   }else{
-    form = (<AppendForm log={"selected_log"} oldFiles={[]} comment={""} id="append-form"/>);
+    form = (<AppendForm log={"selected_log"} oldFiles={[]} comment={""} newPost={true} id="append-form"/>);
     tags = (<TagDropdownBox/>)
   }
 
@@ -441,7 +813,12 @@ function AddLogEntry(props){
     <Container>
       <div id="info-group">
         <Row> <Clock/> </Row>
-        <Row> <User username={glob_user}/></Row>
+        <Row>
+          <Container id="user">
+            <User username={glob_user}/>
+          </Container>
+        </Row>
+        <Row><SignIn show={false}/></Row>
       </div>
       <Row>
         <Col xs={4}>
@@ -468,6 +845,70 @@ function AddLogEntry(props){
         </Row>
       </Container>
     </div>
+  );
+}
+
+function SignIn() {
+  const [show, setShow] = useState(false);
+
+  function signOut(){
+    setShow(false);
+    glob_user = "operator"
+    setCookie("username","operator",3)
+    ReactDOM.render(<User username={glob_user}/>, document.getElementById('user'))
+  }
+  function signIn(){
+    setShow(false);
+    let val = $("#enter-user-name").val()
+    if(val.length===0){
+      val ="operator"
+    }
+    glob_user = val
+    setCookie("username",val,3)
+    if(enteringTestConfig == true){
+      $("#operator").val(val)
+    }
+    ReactDOM.render(<User username={glob_user}/>, document.getElementById('user'))
+  }
+  function handleShow(){
+    setShow(true);
+  }
+  function handleClose(){
+    setShow(false);
+  }
+
+  return (
+    <>
+      <Button id="sign-in" variant="light" svariant="secondary" onClick={handleShow}>
+        Switch User
+      </Button>
+
+      <Modal show={show} onHide={handleClose}>
+        <Modal.Header closeButton>
+          <Modal.Title>Switch User</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <InputGroup className="mb-3">
+            <InputGroup.Prepend>
+              <InputGroup.Text id="inputGroup-sizing-default">Name: </InputGroup.Text>
+            </InputGroup.Prepend>
+            <FormControl
+              aria-label="Default"
+              aria-describedby="inputGroup-sizing-default"
+              id="enter-user-name"
+            />
+          </InputGroup>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={signOut}>
+            Sign Out
+          </Button>
+          <Button variant="primary" onClick={signIn}>
+            Sign In
+          </Button>
+        </Modal.Footer>
+      </Modal>
+    </>
   );
 }
 
@@ -541,22 +982,22 @@ function change_autocommit(log,value){
 }
 
 
-function addTestConfiguration(log,operator,name,pnames,pconfigs){
-  //window.location.reload(false);
-  query = {"log":log, "operator":operator, "files":files, "name":name, "pnames":pnames,"pconfigs":pconfigs}
+async function addTestConfiguration(log,operator,name,pnames,pconfigs){
+  console.log(pnames)
+  console.log(pconfigs)
+  let data = {"log":log, "operator":operator, "files":files, "name":name, "pnames":pnames,"pconfigs":pconfigs}
   //return;
-  $.ajax({
+  await $.ajax({
     type: "POST",
     url: "/add_config",
     dataType : "json",
     async: false,
     contentType: "application/json; charset=utf-8",
-    data : JSON.stringify(query),
+    data : JSON.stringify(data),
     success: function(result){
         console.log("success")
         let succ = result["successfullyWritten"]
         if(succ){
-          window.location.reload(false);
           return true;
         }else{
           testing_config_entered=false
@@ -573,11 +1014,16 @@ function addTestConfiguration(log,operator,name,pnames,pconfigs){
         return false;
     }
   })
+
+  glob_user = operator
+  setCookie("username",operator,3)
 }
 
 
 function TestConfiguration(props) {
   const [validated, setValidated] = useState(false);
+
+  enteringTestConfig = true
 
   const handleSubmit = (event) => {
     const form = event.currentTarget;
@@ -608,10 +1054,15 @@ function TestConfiguration(props) {
         }
       }
       let succ = addTestConfiguration(currentLog,operator,name,pnames,pconfigs)
-      if(succ){
-        window.location.href = rootUrl
-        window.location.reload(false)
-      }
+      succ.then(function(result){
+        console.log(succ)
+        if(succ){
+          enteringTestConfig = false
+          ReactDOM.render(<AddLogEntry log={currentLog}/>, document.getElementById('root'));
+        }else{
+          sendAlert(false);
+        }
+      })
     }
   };
 
@@ -698,7 +1149,7 @@ function TestConfiguration(props) {
       <div class="test-config">
         <InputGroup className="mb-3">
           <InputGroup.Prepend>
-            <InputGroup.Checkbox name={"checked"+j.toString()}/>
+            <InputGroup.Checkbox checked={true}value={1} name={"checked"+j.toString()}/>
           </InputGroup.Prepend>
           <FormControl value={c[0]} name={"component"+j.toString()}/>
           <FormControl value={c[1]} name={"number"+j.toString()}/>
@@ -721,6 +1172,14 @@ function TestConfiguration(props) {
                   </div>
                 );
   }
+
+
+  let operator = ""
+
+  if(glob_user!=="operator"){
+    operator=glob_user
+  }
+
   return (<div>
             <div class="italic" id="info">No configuration has been submitted for the log</div>
             <Form noValidate validated={validated} onSubmit={handleSubmit}>
@@ -741,7 +1200,7 @@ function TestConfiguration(props) {
                             type="text"
                             name="operator"
                             placeholder= "Operator(s)"
-                            defaultValue=""
+                            defaultValue={operator}
                           />
                     </Form.Group>
 
@@ -824,13 +1283,22 @@ function LogMenu(props){
     items.push(<LogCard text={text} title={title} id={id} updated={updated}/>);
   }
 
-  return(<CardGroup>{items}</CardGroup>);
+  let logCards = []
+  for(let i=0; i<items.length;i+=3){
+    let item_set = []
+    item_set.push(items[i])
+    item_set.push(items[i+1])
+    item_set.push(items[i+2])
+    logCards.push(<Row>{item_set}</Row>)
+  }
+
+  return(<div class="padded"><div class="card-deck">{logCards}</div></div>);
 
 }
 
 
 function LogCard(props){
-  return(<Card style={{ width: '18rem' }}>
+  return(<Card style={{ width: '33.3%' }}>
     <Card.Body>
     <Card.Title>{props.title}</Card.Title>
       <Card.Text>
@@ -845,6 +1313,8 @@ function LogCard(props){
 }
 
 function testingConfigToTable(operator, config_name, components,specs, showDetails){
+  console.log(components)
+  console.log(specs)
   let configs = []
   if(showDetails){
     let table = []
@@ -927,6 +1397,8 @@ function AppendForm(props) {
   const [validated, setValidated] = useState(false);
   let oldFiles = props.oldFiles
   let comment = props.comment
+  let newPost = props.newPost
+  let entryId = props.entryId
   if(comment.length==0){
     comment = "Enter comment here"
   }
@@ -946,7 +1418,12 @@ function AppendForm(props) {
       event.stopPropagation();
       setValidated(false);
       console.log(shownFiles)
-      appendEntry(currentLog, glob_user,uploadedFiles,uploadedImages,event.target.comment.value,false)
+      if(newPost){
+        appendEntry(currentLog, glob_user,uploadedFiles,uploadedImages,event.target.comment.value)
+        form.reset()
+      }else{
+        appendToEntry(query, entryId, glob_user, uploadedFiles, uploadedImages, event.target.comment.value)
+      }
       //window.location.reload(false);
       //uploadedImages = []
       //oldFiles = []
@@ -978,7 +1455,7 @@ function AppendForm(props) {
   );
 }
 
-function appendEntry(log,author,entryFiles,entryImages,comment,isAppended){
+function appendToEntry(logId,entryId,author,entryFiles,entryImages,comment){
   let sentFiles = []
   console.log(entryFiles)
   for(var i=0;i<entryFiles.length;i++){
@@ -994,9 +1471,56 @@ function appendEntry(log,author,entryFiles,entryImages,comment,isAppended){
     sentImages.push([thisImage["name"], btoa(thisImage["storedData"])])
   }
 
-  //window.location.reload(false);
+  let data = {"logId":logId, "entryId": entryId, "author":author, "files":sentFiles, "images":sentImages, "comment":comment}
+  console.log(query)
+
+  $.ajax({
+    type: "POST",
+    url: "/append_to_post",
+    dataType : "json",
+    async: false,
+    contentType: "application/json; charset=utf-8",
+    data : JSON.stringify(data),
+    success: function(result){
+        console.log("success")
+        let succ = result["successfullyWritten"]
+        if(succ){
+          files = []
+          uploadedImages = []
+          ReactDOM.render(<ViewLog/>, document.getElementById('root'));
+        }else{
+          sendAlert(false)
+        }
+    },
+    error: function(request, status, error){
+        sendAlert(false)
+        console.log("Error");
+        console.log(request)
+        console.log(status)
+        console.log(error)
+    }
+  })
+}
+
+function appendEntry(log,author,entryFiles,entryImages,comment){
+  let sentFiles = []
+  console.log(entryFiles)
+  for(var i=0;i<entryFiles.length;i++){
+    let thisFile = entryFiles[i]
+    sentFiles.push([thisFile["name"], thisFile["storedData"]])
+  }
+  let sentImages = []
+  console.log(entryImages)
+
+  for(var i=0;i<entryImages.length;i++){
+    let thisImage = entryImages[i]
+    console.log(btoa(thisImage["storedData"]))
+    sentImages.push([thisImage["name"], btoa(thisImage["storedData"])])
+  }
+
   let tag = query.replace("_"," ")
-  query = {"log":log, "author":author, "files":sentFiles, "images":sentImages, "comment":comment, "isAppended":isAppended, "tag":[tag]}
+  let data = {"log":log, "author":author, "files":sentFiles, "images":sentImages, "comment":comment, "tag":[tag]}
+  let succ = false
   //return;
   $.ajax({
     type: "POST",
@@ -1004,14 +1528,17 @@ function appendEntry(log,author,entryFiles,entryImages,comment,isAppended){
     dataType : "json",
     async: false,
     contentType: "application/json; charset=utf-8",
-    data : JSON.stringify(query),
+    data : JSON.stringify(data),
     success: function(result){
         console.log("success")
-        let succ = result["successfullyWritten"]
+        succ = result["successfullyWritten"]
+        console.log(succ)
         if(succ){
           files = []
           uploadedImages = []
-          //window.location.reload(false);
+          uploadedFiles = []
+          shownFiles = []
+          ReactDOM.render(<AddLogEntry log={currentLog}/>, document.getElementById('root'));
         }else{
           sendAlert(false)
         }
@@ -1045,6 +1572,9 @@ function appendEntry(log,author,entryFiles,entryImages,comment,isAppended){
     });
   }
 
+  if(succ){
+    ReactDOM.render(<AddLogEntry log={currentLog}/>, document.getElementById('root'));
+  }
 }
 
 async function uploadImage(data){
@@ -1187,7 +1717,12 @@ function TagDropdownBox(props){
   let tag_selections = glob_tags[currentLog]
   for(let i=0; i<tag_selections.length; i++){
     let tagUrl = tag_selections[i].replace(" ","_")
-    items.push(<Dropdown.Item href={rootUrl + "?" + tagUrl}>{tag_selections[i]}</Dropdown.Item>)
+    if(tagUrl==="None"){
+      console.log("None")
+      items.push(<Dropdown.Item href={rootUrl}>{tag_selections[i]}</Dropdown.Item>)
+    }else{
+      items.push(<Dropdown.Item href={rootUrl + "?" + tagUrl}>{tag_selections[i]}</Dropdown.Item>)
+    }
   }
   return(
     <Dropdown>
@@ -1215,10 +1750,15 @@ class ManualSave extends React.Component{
   handleChange(){
     console.log('manual save button pressed')
     let success = manualSave(currentLog)
-    sendAlert(success)
-    if(success){
-      window.location.reload(false);
-    }
+    success.then(function(result){
+      if(success){
+        ReactDOM.render(<AddLogEntry log={currentLog}/>, document.getElementById('root'));
+        sendAlert(true)
+      }
+      else{
+        sendAlert(false)
+      }
+    })
   }
 
   render(){
@@ -1228,9 +1768,10 @@ class ManualSave extends React.Component{
   }
 }
 
-function manualSave(log){
+async function manualSave(log){
+  console.log(log)
   //return true
-  $.ajax({
+  await $.ajax({
     type: "POST",
     url: "/commit_log",
     dataType : "json",
@@ -1461,7 +2002,7 @@ function ElogNavbar(props){
             <Nav className="mr-auto">
               <Nav.Link href="#/write-to/operations-log">Add Log Entry</Nav.Link>
               <Nav.Link href="#/view/recent-logs">Recent Logs</Nav.Link>
-              <Nav.Link href="#search">Search</Nav.Link>
+              <Nav.Link href="#/search-logs">Search Logs</Nav.Link>
             </Nav>
             <Navbar.Brand href="#/write-to/operations-log">Lyncean Elog</Navbar.Brand>
           </Navbar>);
@@ -1476,17 +2017,17 @@ class Appended{
 
 let Comment = function(props){
   let text = props.text
-  let caption = props.caption
-  return(<figure>
-            <div> {text} </div>
-            <figcaption>{caption}</figcaption>
-          </figure>
+  let appendedText = props.appendedText
+  return(<Row>
+          <span>{text}</span>
+          <span class="italic-large">{appendedText}</span>
+         </Row>
   );
 }
 
 let Tag = function(props){
   let tag = "Tagged with: " + props.tags
-  return(<div class="italic">{tag}</div>);
+  return(<div class="italic-large">{tag}</div>);
 }
 
 let File = function(props){
@@ -1518,7 +2059,7 @@ class Clock extends React.Component{
   }
 
   render(){
-    return(<div class="italic">{this.state.date.toLocaleString()}</div>);
+    return(<div class="italic-padded">{this.state.date.toLocaleString()}</div>);
   }
 }
 
@@ -1530,65 +2071,5 @@ let User = function(props){
 let Line = function(props){
   return (<div/>);
 }
-
-const pxToMm = (px) => {
-  return Math.floor(px/document.getElementById('myMm').offsetHeight);
-};
-
-const mmToPx = (mm) => {
-  return document.getElementById('myMm').offsetHeight*mm;
-};
-
-const range = (start, end) => {
-    return Array(end-start).join(0).split(0).map(function(val, id) {return id+start});
-};
-
-
-const PrintButton = ({id, label}) => (<div className="tc mb4 mt2">
-  {/*
-    Getting pixel height in milimeters:
-    https://stackoverflow.com/questions/7650413/pixel-to-mm-equation/27111621#27111621
-  */}
-  <div id="myMm" style={{height: "1mm"}} />
-
-
-  <div
-    className="pa2 ba bw1 b--black bg-yellow black-90 br2 dib pointer dim shadow-1"
-    onClick={() => {
-      const input = document.getElementById(id);
-      const inputHeightMm = pxToMm(input.offsetHeight);
-      const a4WidthMm = 210;
-      const a4HeightMm = 297;
-      const a4HeightPx = mmToPx(a4HeightMm);
-      const numPages = inputHeightMm <= a4HeightMm ? 1 : Math.floor(inputHeightMm/a4HeightMm) + 1;
-      console.log({
-        input, inputHeightMm, a4HeightMm, a4HeightPx, numPages, range: range(0, numPages),
-        comp: inputHeightMm <= a4HeightMm, inputHeightPx: input.offsetHeight
-      });
-
-
-      html2canvas(input)
-        .then((canvas) => {
-          const imgData = canvas.toDataURL('image/png');
-          let pdf = null
-
-          // Document of a4WidthMm wide and inputHeightMm high
-          if (inputHeightMm > a4HeightMm) {
-            // elongated a4 (system print dialog will handle page breaks)
-            pdf = new jsPDF('p', 'mm', [inputHeightMm+16, a4WidthMm]);
-          } else {
-            // standard a4
-            pdf = new jsPDF();
-          }
-
-          pdf.addImage(imgData, 'PNG', 0, 0);
-          pdf.save(`${id}.pdf`);
-        });
-      ;
-    }}
-  >
-    {label}
-  </div>
-</div>);
 
 export default App;

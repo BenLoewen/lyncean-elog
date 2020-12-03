@@ -50,8 +50,13 @@
 
 .italic{
   font-style: italic;
-  padding-left: 10px;
   font-size:12px;
+}
+
+.italic-padded{
+  font-style: italic;
+  font-size:12px;
+  padding-left: 15px;
 }
 
 .italic-large{
@@ -64,12 +69,45 @@
   padding: 20px;
 }
 
+.spaced-out{
+  margin: 10px;
+  align-content: center;
+  text-align: center;
+  align-items: center;
+  display: block;
+}
+
 .test-config{
   padding-top: 30px;
 }
 
 .FormRow{
   margin: 50px;
+}
+
+img.center{
+  display: block;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.append-button{
+  display: inline-block;
+  position: relative;
+}
+
+.wrapper-container{
+  display: flex;
+  align-items: center;
+}
+
+.vertical-center {
+  display: table-cell;
+  vertical-align: middle
+}
+
+.log-card{
+  width: '70rem';
 }
 
 #success{
@@ -115,4 +153,46 @@
 
 #back-button{
   margin: 30px;
+}
+
+#user{
+  text-align: left;
+}
+
+#sign-in{
+  margin-left:10px;
+  font-size: 12px;
+}
+
+#dropdown-left{
+  display: flex;
+  align-items: left;
+  justify-content: left;
+}
+
+#results-title{
+  font-weight: bold;
+  font-size: 14;
+  margin-top: 30px;
+  margin-left: 20px;
+  text-align: center;
+}
+
+#push{
+  margin-left: 10px;
+}
+
+#results{
+  margin-top: 30px;
+  margin-left: 20px;
+}
+
+#select-log{
+  margin-left: 20px;
+  text-align: center;
+}
+
+#enter-config{
+  text-align: left;
+  margin-left: 10px;
 }
