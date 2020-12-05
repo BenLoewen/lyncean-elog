@@ -8,7 +8,7 @@ process.argv.forEach(function(val,index,array){
       url: "/screen_cap",
       dataType: "json",
       contentType: "application/json; charset=utf-8",
-      data: JSON.stringify(toSend),s
+      data: JSON.stringify(toSend),
       success: function(result){
         console.log("success")
       },
