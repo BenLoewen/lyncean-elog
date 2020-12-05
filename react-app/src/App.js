@@ -154,6 +154,29 @@ function tick(){
 
 setInterval(tick, 100);
 
+function checkImage(){
+  let screenCapFiles = []
+  $.ajax({
+    type: "GET",
+    url: "/screen_cap",
+    dataType : "json",
+    async: false,
+    contentType: "application/json; charset=utf-8",
+    success: function(result){
+      screenCapFiles = result["screenCapFiles"]
+    },
+    error: function(request, status, error){
+        console.log("Error");
+        console.log(request)
+        console.log(status)
+        console.log(error)
+    }
+  })
+  console.log(screenCapFiles)
+}
+
+setInterval(checkImage, 1000)
+
 function setCookie(cname, cvalue, exdays) {
   var d = new Date();
   d.setTime(d.getTime() + (exdays*24*60*60*1000));
