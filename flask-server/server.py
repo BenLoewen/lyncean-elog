@@ -22,6 +22,7 @@ database_path = 'data/elog'
 CONFIG_FOLDER = "C:/Users/benja/Desktop/work/elog1.0/config/configs.txt"
 COMMON_FOLDER = "C:/Users/benja/Desktop/work/elog1.0/common/"
 
+screenCapFiles = []
 
 #All database functions
 #createDatabase
@@ -636,6 +637,17 @@ def add_config():
 
 
   return jsonify(successfullyWritten = success)
+
+@app.route('/screen_cap', methods=['GET','POST'])
+def screen_cap():
+  if request.method == 'POST':
+    query = request.get_json()
+    name = query["name"]
+    print('Screen cap uploaded with name:' + name)
+    screenCapFiles.append(name)
+  if request.method == 'GET':
+    return jsonify(screenCapFiles = screenCapFiles)
+
 
 @app.route('/get_log/<id>', methods=['GET'])
 def get_log(id=None):
