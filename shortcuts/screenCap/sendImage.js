@@ -1,20 +1,13 @@
-import $ from "jquery";
+const axios = require('axios');
 
 process.argv.forEach(function(val,index,array){
   if(index==2){
-    toSend = {"name":val}
-    $.ajax({
-      type: "POST",
-      url: "/screen_cap",
-      dataType: "json",
-      contentType: "application/json; charset=utf-8",
-      data: JSON.stringify(toSend),
-      success: function(result){
-        console.log("success")
-      },
-      error: function(request, status, error){
-        console.log("Failure. Server is probably not running")
-      }s
-    }
+    axios.get("http://localhost:4040/"+val)
+      .then(response => {
+	console.log("success");
+      })
+      .catch(error => {
+	console.log(error);
+      });
   }
-});
+})
