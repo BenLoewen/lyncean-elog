@@ -1,6 +1,6 @@
 from flask import Flask
 from flask import render_template
-from flask import Response, request, jsonify, flash, url_for, session
+from flask import Response, request, jsonify, flash, url_for, session, send_from_directory, send_file
 import sqlite3
 from datetime import datetime, timedelta
 import time
@@ -8,8 +8,10 @@ import requests
 import shutil
 import urllib
 import os
+import base64
 app = Flask(__name__)
 
+INSTALLATION_LOCATION = "C:/Users/benja/Desktop/work/elog1.0/"
 
 cursor = None
 db = None
@@ -19,8 +21,9 @@ curr_logId = 0
 curr_appendedId = 1
 logIds = {"electronics":1,"operations":2}
 database_path = 'data/elog'
-CONFIG_FOLDER = "C:/Users/benja/Desktop/work/elog1.0/config/configs.txt"
-COMMON_FOLDER = "C:/Users/benja/Desktop/work/elog1.0/common/"
+CONFIG_FOLDER = INSTALLATION_LOCATION + "config/configs.txt"
+COMMON_FOLDER = INSTALLATION_LOCATION + "common/"
+SCREENCAP_FOLDER = INSTALLATION_LOCATION + "shortcuts/screenCap/captures/"
 
 screenCapFiles = []
 
@@ -319,7 +322,7 @@ def appendToLogPost(logId, entryId, author, comment, files, images):
 
 def getLogType(logId):
   cursor,db = getCursor()
-  select = 'SELECT logtype FROM log WHERE id=' + logId +';'
+  select = 'SELECT logtype FROM log WHERE id=' + str(logId) +';'
   for row in cursor.execute(select):
     return row[0]
   return None
@@ -381,7 +384,6 @@ def addImage(img,log,entryId,appendedId):
   now = datetime.now()
   date = now.strftime("/%Y/%m/%d/")
   log = curr_log
-  #path = "/uploads/" + str(log) + date + img
   insert = '''
           INSERT INTO IMAGE (NAME,BASE64,ENTRY,APPENDED)
           VALUES (?, ?, ?, ?);
@@ -571,6 +573,8 @@ def add_entry():
   print("...")
   success=True
 
+  screenCapFiles = []
+
   '''
   try:
     addLogPost(log, author, files, comment,images,tags,isAppended)
@@ -600,6 +604,14 @@ def append_to_post():
   images = query["images"]
   success = None
 
+  appendToLogPost(logId, entryId, author, comment, files, images)
+  print("succesfully appended to entry with id:" + str(entryId))
+  print("...")
+  success = True
+
+  screenCapFiles = []
+
+  '''
   try:
     appendToLogPost(logId, entryId, author, comment, files, images)
     print("succesfully appended to entry with id:" + str(entryId))
@@ -608,6 +620,7 @@ def append_to_post():
   except:
     print("unsuccesful attempt to append to entry with id:" + str(entryId))
     success = False
+  '''
 
   return jsonify(successfullyWritten = success)
 
@@ -638,16 +651,21 @@ def add_config():
 
   return jsonify(successfullyWritten = success)
 
-@app.route('/screen_cap', methods=['GET','POST'])
+@app.route('/screen_cap', methods=['GET'])
 def screen_cap():
-  if request.method == 'POST':
-    query = request.get_json()
-    name = query["name"]
-    print('Screen cap uploaded with name:' + name)
-    screenCapFiles.append(name)
-  if request.method == 'GET':
-    return jsonify(screenCapFiles = screenCapFiles)
+  return jsonify(screenCapFiles = screenCapFiles)
 
+@app.route('/upload_screen_cap/<name>', methods=['POST'])
+def upload_screen_cap(name=None):
+  name += '.jpg'
+  screenCapFiles.append([name, screenCapToBase64(name)])
+  return jsonfiy(success=True)
+
+def screenCapToBase64(name):
+  path = SCREENCAP_FOLDER + name
+  with open(path, "rb") as image_file:
+    b64_img = base64.standard_b64encode(image_file.read())
+    return str(b64_img,"utf-8")
 
 @app.route('/get_log/<id>', methods=['GET'])
 def get_log(id=None):
@@ -733,7 +751,7 @@ def header_exists():
   #except:
   #  print("unsuccessful attempt to check if header exists")
 
-  return jsonify(exists = doesExist)
+  return jsonify(exists = doesExist, logId = logId)
 
 @app.route('/get_config/<name>', methods=['GET'])
 def get_config(name=None):
@@ -742,6 +760,7 @@ def get_config(name=None):
   print('...')
 
   try:
+    name = name.replace('-', " ")
     config = getConfig(name)
   except:
     print("unsuccessful attempt to retrieve config with name " + name)
@@ -846,6 +865,8 @@ def runAutojobs():
   os.system("python autojobs.py")
 
 if __name__ == '__main__':
+  #name = "Thu_Dec_10_10_15_43_PST_2020.jpg"
+  #screenCapFiles.append([name, screenCapToBase64(name)])
   if os.path.isfile(database_path):
     setUpDatabase()
   else:
