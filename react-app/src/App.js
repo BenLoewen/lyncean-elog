@@ -39,11 +39,11 @@ import "react-datepicker/dist/react-datepicker.css";
 let buttonId = 0
 let iter = 0
 let last=-1
-let shortcutImages = []
-let files = []
-let shownFiles = []
-let uploadedImages = []
-let uploadedFiles = []
+let screenCapFiles = []
+let files = [[],[]]
+let shownFiles = [[],[]]
+let uploadedImages = [[],[]]
+let uploadedFiles = [[],[]]
 let alerts = [<Alert key={1} variant="success">Success</Alert>,<Alert key={2} variant="warning">Warning, changes may have not gone through!</Alert>]
 const list_of_logs = ["Electronics","Operations"]
 let lastUrl = ""
@@ -118,6 +118,9 @@ function tick(){
   rootUrl = currUrl.slice(0,q)
 
   if(lastUrl!=currUrl){
+    if(appendingToPost){
+      appendingToPost=false
+    }
     const element = <h1>Page Not Found!</h1>;
     if(currUrl.indexOf("#/write-to/")==0){
       let log_ind = currUrl.indexOf('-log')
@@ -154,8 +157,8 @@ function tick(){
 
 setInterval(tick, 100);
 
-function checkImage(){
-  let screenCapFiles = []
+function checkShortcutImages(){
+  let newFiles = []
   $.ajax({
     type: "GET",
     url: "/screen_cap",
@@ -163,7 +166,7 @@ function checkImage(){
     async: false,
     contentType: "application/json; charset=utf-8",
     success: function(result){
-      screenCapFiles = result["screenCapFiles"]
+      newFiles = result["screenCapFiles"]
     },
     error: function(request, status, error){
         console.log("Error");
@@ -172,10 +175,94 @@ function checkImage(){
         console.log(error)
     }
   })
-  console.log(screenCapFiles)
+
+  let filesAdded = false
+
+  for(let i = screenCapFiles.length; i<newFiles.length; i++){
+    filesAdded = true
+    let cap = newFiles[i]
+    let dec = window.atob(cap[1])
+    //let screenCap = b64toBlob(cap[1],"image/jpg")
+    //let testFile = new File([dec],cap[0], {type: "image/jpg",})
+
+    let testBlob = b64toBlob(cap[1], "image/jpg")
+    console.log(testBlob)
+
+    let file = blobToFile(testBlob, cap[0])
+    screenCapFiles.push(file)
+
+    const reader = new FileReader()
+
+    reader.onabort = () => console.log('file reading was aborted')
+    reader.onerror = () => console.log('file reading has failed')
+    reader.onload = () => {
+    // Do whatever you want with the file contents
+      const res = reader.result
+      Object.assign(file, {
+        storedData: res
+      })
+    }
+
+    Object.assign(file, {
+      preview: URL.createObjectURL(file)
+    })
+    let ind = 1
+    if(appendingToPost){
+      ind = 0
+    }
+    uploadedImages[ind].push(file)
+    files[ind].push(file);
+    shownFiles[ind].push(file)
+
+    reader.readAsBinaryString(file)
+
+
+
+    console.log(file)
+  }
+
+  if(filesAdded){
+    if(appendingToPost){
+      ReactDOM.render(<FileDrop id="file-drop" newPost={false}/>, document.getElementById("file-drop-append-to-post"))
+    }else{
+      ReactDOM.render(<FileDrop id="file-drop" newPost={true}/>, document.getElementById("file-drop-append-to-log"))
+    }
+    filesAdded = false
+  }
 }
 
-setInterval(checkImage, 1000)
+setInterval(checkShortcutImages, 1000)
+
+function b64toBlob(b64Data, contentType, sliceSize) {
+  contentType = contentType || '';
+  sliceSize = sliceSize || 512;
+
+  var byteCharacters = atob(b64Data);
+  var byteArrays = [];
+
+  for (var offset = 0; offset < byteCharacters.length; offset += sliceSize) {
+      var slice = byteCharacters.slice(offset, offset + sliceSize);
+
+      var byteNumbers = new Array(slice.length);
+      for (var i = 0; i < slice.length; i++) {
+          byteNumbers[i] = slice.charCodeAt(i);
+      }
+
+      var byteArray = new Uint8Array(byteNumbers);
+
+      byteArrays.push(byteArray);
+  }
+
+  var blob = new Blob(byteArrays, {type: contentType});
+  return blob;
+}
+
+function blobToFile(theBlob, fileName){
+  //A Blob() is almost a File() - it's just missing the two properties below which we will add
+  theBlob.lastModifiedDate = new Date();
+  theBlob.name = fileName;
+  return theBlob;
+}
 
 function setCookie(cname, cvalue, exdays) {
   var d = new Date();
@@ -563,6 +650,7 @@ function Post(props){
 
 function Log(props){
   let data = props.data
+  let id = props.id
   let header = testingConfigToTable(data["operator"],data["configname"],data["comps"],data["specs"],true)
   return(
     <Card style={{ width: '70rem' }}>
@@ -574,7 +662,7 @@ function Log(props){
           <ListGroupItem>
             {header}
           </ListGroupItem>
-          <Entries entries={props.entries}/>
+          <Entries entries={props.entries} id={id} direction="forward"/>
         </ListGroup>
       </Card.Body>
     </Card>
@@ -584,6 +672,11 @@ function Log(props){
 function Entries(props){
   let result=[]
   let entries = props.entries
+  let logId = props.id
+  let direction = props.direction
+  if(direction=="reverse"){
+    entries = entries.reverse()
+  }
   let i = 0
   for(i=0; i< entries.length; i++){
     let entry = entries[i]
@@ -604,7 +697,7 @@ function Entries(props){
                       </Col>
                       <Col xs={2}>
                         <Container id={entry["id"] + "button"} class="wrapper-container">
-                          <div class="vertical-bottom"><AppendButton entryId={entry["id"]} /></div>
+                          <div class="vertical-bottom"><AppendButton logId={logId} entryId={entry["id"]} /></div>
                         </Container>
                       </Col>
                     </Row>
@@ -616,13 +709,14 @@ function Entries(props){
 
 function AppendButton(props){
   let entryId = props.entryId
-  let appendForm = (<AppendForm oldFiles={[]} comment={""} newPost={false} entryId={entryId}/>)
+  let logId = props.logId
+  let appendForm = (<AppendForm logId={logId} oldFiles={[]} comment={""} newPost={false} entryId={entryId}/>)
 
   function handleChange(){
     if(!appendingToPost){
       appendingToPost = true
       ReactDOM.render(appendForm, document.getElementById(entryId));
-      ReactDOM.render(<CancelButton entryId={entryId}/>, document.getElementById(entryId + "button"));
+      ReactDOM.render(<CancelButton logId={logId} entryId={entryId}/>, document.getElementById(entryId + "button"));
     }
   }
 
@@ -631,11 +725,12 @@ function AppendButton(props){
 
 function CancelButton(props){
   let entryId = props.entryId
+  let logId = props.logId
 
   function handleChange(){
     appendingToPost = false
     ReactDOM.render(<div></div>, document.getElementById(entryId));
-    ReactDOM.render(<AppendButton id="append-button" entryId={entryId}/>, document.getElementById(entryId + "button"));
+    ReactDOM.render(<AppendButton id="append-button" logId={logId} entryId={entryId}/>, document.getElementById(entryId + "button"));
   }
 
   return(<Button variant="outline-secondary" onClick={() => handleChange()}>Cancel</Button>)
@@ -742,13 +837,38 @@ function ViewLog(props){
               <Line/>
               </Row>
               <Row>
-                <div id="to-print"><Log data={data} entries={entries}/></div>
+                <Log id={id} data={data} entries={entries}/>
               </Row>
             </Container>
           </Col>
         </Row>
       </Container>
     </div>);
+}
+
+function EditLog(props){
+  let id = props.logId
+
+  let data = {}
+  let entries = []
+  $.ajax({
+    type: "GET",
+    url: "/get_entries/" + id,
+    dataType : "json",
+    async: false,
+    contentType: "application/json; charset=utf-8",
+    success: function(result){
+        entries = result["entries"]
+    },
+    error: function(request, status, error){
+        console.log("Error");
+        console.log(request)
+        console.log(status)
+        console.log(error)
+    }
+  })
+
+  return(<div id="editLog"><Entries id={id} entries={entries} direction="reverse"/></div>)
 }
 
 function getRecentLogIds(){
@@ -774,13 +894,10 @@ function getRecentLogIds(){
 }
 
 function AddLogEntry(props){
-  console.log(props.log)
-
-  //Has this log been written to?
-  let form = (<AppendForm log={props.log} oldFiles={[]} comment={""} newPost={true}/>);
-  let tags = (<div></div>);
+  //Has this log been written to?ss
 
   let header = false;
+  let logId = 0
 
   $.ajax({
     type: "POST",
@@ -791,6 +908,7 @@ function AddLogEntry(props){
     data : JSON.stringify({"log":currentLog}),
     success: function(result){
         header = result["exists"]
+        logId = result["logId"]
     },
     error: function(request, status, error){
         console.log("Error");
@@ -800,13 +918,19 @@ function AddLogEntry(props){
     }
   });
 
+  console.log('ys')
+  console.log(logId)
 
+  let form = null;
+  let tags = (<div></div>)
+  let posted = (<div></div>)
 
   if(header===false){
     form = (<TestConfiguration/>)
   }else{
-    form = (<AppendForm log={"selected_log"} oldFiles={[]} comment={""} newPost={true} id="append-form"/>);
+    form = (<AppendForm log={props.log} logId={logId} oldFiles={[]} comment={""} newPost={true} id="append-form"/>);
     tags = (<TagDropdownBox/>)
+    posted = (<div id="posted-entries">Posted Entries</div>)
   }
 
 
@@ -852,6 +976,10 @@ function AddLogEntry(props){
         <Col xs={2}><ManualSave/></Col>
       </Row>
       {form}
+      <Container id="edit-log">
+        {posted}
+        <EditLog logId={logId}/>
+      </Container>
     </Container>
   );
 
@@ -1065,13 +1193,13 @@ function TestConfiguration(props) {
       let name = event.target.config_name.value
       let pnames = []
       let pconfigs = []
-      console.log(event.target)
-      console.log(event.target.checked0)
-      let checked = [event.target.checked0.checked,event.target.checked1.checked,event.target.checked2.checked,event.target.checked3.checked,event.target.checked4.checked]
-      let components = [event.target.component0.value, event.target.component1.value, event.target.component2.value, event.target.component3.value, event.target.component4.value]
-      let numbers = [event.target.number0.value, event.target.number1.value, event.target.number2.value, event.target.number3.value, event.target.number4.value]
-      for(let i=0; i<checked.length;i++){
-        if(checked[i]){
+      let components = [event.target.component0.value, event.target.component1.value, event.target.component2.value, event.target.component3.value, event.target.component4.value, event.target.component5.value, event.target.component6.value, event.target.component7.value, event.target.component8.value, event.target.component9.value]
+      let numbers = [event.target.number0.value, event.target.number1.value, event.target.number2.value, event.target.number3.value, event.target.number4.value, event.target.number5.value, event.target.number6.value, event.target.number7.value, event.target.number9.value, event.target.number9.value]
+      for(let i=0; i<components.length;i++){
+        console.log(components[i])
+        console.log(components[i]!="")
+        console.log(components[i]!=="")
+        if(components[i]!==""){
           pnames.push(components[i])
           pconfigs.push(numbers[i])
         }
@@ -1113,14 +1241,15 @@ function TestConfiguration(props) {
 
   for(var i=0; i<names.length;i++){
     let name = names[i]
-    configs.push(<Dropdown.Item href={rootUrl + "?" + name}>{name}</Dropdown.Item>);
+    let urlName = name.replace(' ','-')
+    configs.push(<Dropdown.Item href={rootUrl + "?" + urlName}>{name}</Dropdown.Item>);
   }
   //href={lastUrl + "?" + name}
 
 
   let config = []
 
-  let configName = (<Form.Group id="comment-input" as={Col} md="12" controlId="validationCustom01">
+  let configName = (<Form.Group id="configuration-input" as={Col} md="12" controlId="validationCustom01">
                       <Form.Control
                         required
                         id="config_name"
@@ -1150,7 +1279,7 @@ function TestConfiguration(props) {
           console.log(error)
       }
     })
-    let name = query.replace('%',' ')
+    let name = query.replace('-',' ')
     configName = (<Form.Group id="comment-input" as={Col} md="12" controlId="validationCustom01">
                       <Form.Control
                         required
@@ -1171,9 +1300,6 @@ function TestConfiguration(props) {
     result.push(
       <div class="test-config">
         <InputGroup className="mb-3">
-          <InputGroup.Prepend>
-            <InputGroup.Checkbox checked={true}value={1} name={"checked"+j.toString()}/>
-          </InputGroup.Prepend>
           <FormControl value={c[0]} name={"component"+j.toString()}/>
           <FormControl value={c[1]} name={"number"+j.toString()}/>
         </InputGroup>
@@ -1182,15 +1308,12 @@ function TestConfiguration(props) {
   }
 
 
-  for(; j<5;j++){
+  for(; j<10;j++){
     result.push(
                   <div class="test-config">
                     <InputGroup className="mb-3">
-                      <InputGroup.Prepend>
-                        <InputGroup.Checkbox name={"checked"+j.toString()}/>
-                      </InputGroup.Prepend>
-                      <FormControl placeholder="Component(s)" name={"component"+j.toString()}/>
-                      <FormControl placeholder="Specification (ex. serial numbers)" name={"number"+j.toString()}/>
+                      <FormControl placeholder="Component(s)" id="components" name={"component"+j.toString()}/>
+                      <FormControl placeholder="Specification (ex. serial numbers)" id="components" name={"number"+j.toString()}/>
                     </InputGroup>
                   </div>
                 );
@@ -1201,6 +1324,11 @@ function TestConfiguration(props) {
 
   if(glob_user!=="operator"){
     operator=glob_user
+  }
+
+  function clear(){
+    window.location.href = rootUrl
+    window.location.reload(false)
   }
 
   return (<div>
@@ -1214,6 +1342,9 @@ function TestConfiguration(props) {
                     <DropdownButton id="dropdown-adv" title="Load Previous">
                       {configs}
                     </DropdownButton>
+
+                    <Button id="reset" variant="secondary" onClick={() => clear()}>Reset</Button>
+
                   </Col>
                   <Col xs = "9">
                     <Form.Group id="comment-input" as={Col} md="12" controlId="validationCustom01">
@@ -1378,50 +1509,13 @@ function sendAlert(success){
   }
 }
 
-function getUploadedImages(){
-  let imgs = []
-  $.ajax({
-    type: "GET",
-    url: "/shortcut_image",
-    dataType : "json",
-    async: false,
-    contentType: "application/json; charset=utf-8",
-    success: function(result){
-        imgs = result["shortcutImages"]
-    },
-    error: function(request, status, error){
-        console.log("Error");
-        console.log(request)
-        console.log(status)
-        console.log(error)
-        return false
-    }
-  });
-
-  let addedImgs = []
-
-  for(var i=0; i<imgs.length;i++){
-    let path = imgs[i]
-    let name = path.slice(path.lastIndexOf('\\'))
-    let f = {"path":path, "name":name}
-    addedImgs.push(f);
-  }
-
-  console.log(addedImgs)
-
-  if(addedImgs.length>0){
-    ReactDOM.render(<FileDrop oldFiles={[]} shortcutImages={addedImgs} id="file-drop"/>, document.getElementById('file-drop'));
-  }
-}
-
-//setInterval(getUploadedImages, 1000);
 
 function AppendForm(props) {
   const [validated, setValidated] = useState(false);
-  let oldFiles = props.oldFiles
   let comment = props.comment
   let newPost = props.newPost
   let entryId = props.entryId
+  let logId = props.logId
   if(comment.length==0){
     comment = "Enter comment here"
   }
@@ -1442,10 +1536,10 @@ function AppendForm(props) {
       setValidated(false);
       console.log(shownFiles)
       if(newPost){
-        appendEntry(currentLog, glob_user,uploadedFiles,uploadedImages,event.target.comment.value)
+        appendEntry(currentLog, glob_user,uploadedFiles[1],uploadedImages[1],event.target.comment.value)
         form.reset()
       }else{
-        appendToEntry(query, entryId, glob_user, uploadedFiles, uploadedImages, event.target.comment.value)
+        appendToEntry(logId, entryId, glob_user, uploadedFiles[0], uploadedImages[0], event.target.comment.value)
       }
       //window.location.reload(false);
       //uploadedImages = []
@@ -1458,7 +1552,7 @@ function AppendForm(props) {
   return (
     <div>
     <Form noValidate validated={validated} onSubmit={handleSubmit}>
-      <FileDrop oldFiles={oldFiles} shortcutImages={[]} id="file-drop"/>
+      <FileDrop id="file-drop" newPost={newPost}/>
       <Form.Row>
         <Form.Group id="comment-input" as={Col} md="12" controlId="validationCustom01">
           <Form.Control
@@ -1494,8 +1588,9 @@ function appendToEntry(logId,entryId,author,entryFiles,entryImages,comment){
     sentImages.push([thisImage["name"], btoa(thisImage["storedData"])])
   }
 
+
   let data = {"logId":logId, "entryId": entryId, "author":author, "files":sentFiles, "images":sentImages, "comment":comment}
-  console.log(query)
+  console.log(data)
 
   $.ajax({
     type: "POST",
@@ -1508,9 +1603,20 @@ function appendToEntry(logId,entryId,author,entryFiles,entryImages,comment){
         console.log("success")
         let succ = result["successfullyWritten"]
         if(succ){
-          files = []
-          uploadedImages = []
-          ReactDOM.render(<ViewLog/>, document.getElementById('root'));
+          uploadedImages[0] = []
+          uploadedFiles[0] = []
+          files[0] = []
+          shownFiles[0] = []
+          appendingToPost = false
+          console.log(rootUrl)
+          if(rootUrl.indexOf("#/view/log")==0){
+            console.log('shout')
+            ReactDOM.render(<ViewLog/>, document.getElementById('root'));
+          }
+          else if(rootUrl.indexOf("#/write-to/")==0){
+            console.log('shout')
+            ReactDOM.render(<EditLog logId={logId}/>, document.getElementById("edit-log"))
+          }
         }else{
           sendAlert(false)
         }
@@ -1557,10 +1663,10 @@ function appendEntry(log,author,entryFiles,entryImages,comment){
         succ = result["successfullyWritten"]
         console.log(succ)
         if(succ){
-          files = []
-          uploadedImages = []
-          uploadedFiles = []
-          shownFiles = []
+          uploadedImages[1] = []
+          uploadedFiles[1] = []
+          files[1] = []
+          shownFiles[1] = []
           ReactDOM.render(<AddLogEntry log={currentLog}/>, document.getElementById('root'));
         }else{
           sendAlert(false)
@@ -1871,62 +1977,49 @@ const img = {
 
 
 function FileDrop(props) {
+  let ind = 0
+  if(props.newPost){
+    ind = 1
+  }
+
   const [value, setValue, getValue] = React.useState("");
   //Dropzone.myDropzone.options = {};
   const {acceptedFiles, getRootProps, getInputProps} = useDropzone({
-    getFilesFromEvent: event => myCustomFileGetter(event)
+    getFilesFromEvent: event => myCustomFileGetter(event, ind)
   });
-  for(var i=0; i<props.oldFiles;i++){
-    shownFiles.push(props.oldFiles[i])
-  }
   let files = []
 
-  let shortcutImages = props.shortcutImages
-
-  for(var i=0;i<shortcutImages.length;i++){
-    let img = shortcutImages[i]
-    console.log(img)
-    shownFiles.push(img)
-    files.push(img)
-    uploadedImages.push(img)
-  }
-
   function handleChange(name){
-    for(var i = 0; i < shownFiles.length;i++){
-      if (shownFiles[i].name===name) {
-       shownFiles.splice(i,1);
+    for(var i = 0; i < shownFiles[ind].length;i++){
+      if (shownFiles[ind][i].name===name) {
+       shownFiles[ind].splice(i,1);
       }
     };
-    for(var i = 0; i < files.length;i++){
-      if (files[i].name===name) {
-       files.splice(i,1);
+    for(var i = 0; i < uploadedFiles[ind].length;i++){
+      if (uploadedFiles[ind][i].name===name) {
+        uploadedFiles[ind].splice(i,1);
       }
     };
-    for(var i = 0; i < uploadedFiles.length;i++){
-      if (uploadedFiles[i].name===name) {
-        uploadedFiles.splice(i,1);
-      }
-    };
-    for(var i = 0; i < uploadedImages.length;i++){
-      if (uploadedImages[i].name===name) {
-        uploadedImages.splice(i,1);
+    for(var i = 0; i < uploadedImages[ind].length;i++){
+      if (uploadedImages[ind][i].name===name) {
+        uploadedImages[ind].splice(i,1);
       }
     };
     setValue(iter++);
   }
 
-  if(last===shownFiles.length){
-    buttonId = buttonId-shownFiles.length
+  if(last===shownFiles[ind].length){
+    buttonId = buttonId-shownFiles[ind].length
   }
 
-  for (var i = 0; i < shownFiles.length; i++) {
-    const f = shownFiles[i];
-    files.push(<GenericButton key={buttonId++} id={f["name"]} onChange={handleChange} text={f["name"]} inside={"X"}/>)
+  for (var i = 0; i < shownFiles[ind].length; i++) {
+    let name = shownFiles[ind][i]["name"]
+    files.push(<GenericButton key={buttonId++} id={name} onChange={handleChange} text={name} inside={"X"}/>)
   }
 
-  last=shownFiles.length
+  last=shownFiles[ind].length
 
-  const thumbs = uploadedImages.map(file => (
+  const thumbs = uploadedImages[ind].map(file => (
     <div style={thumb} key={file.name}>
       <div style={thumbInner}>
         <img
@@ -1939,12 +2032,16 @@ function FileDrop(props) {
 
   useEffect(() => () => {
     // Make sure to revoke the data uris to avoid memory leaks
-    uploadedImages.forEach(file => URL.revokeObjectURL(file.preview));
-  }, [uploadedImages]);
+    uploadedImages[ind].forEach(file => URL.revokeObjectURL(file.preview));
+  }, [uploadedImages[ind]]);
 
+  let containerId = "file-drop-append-to-post"
+  if(props.newPost){
+    containerId = "file-drop-append-to-log"
+  }
 
   return (
-    <Container id="file-drop">
+    <Container id={containerId}>
       <hr/>
       <div {...getRootProps({className: 'dropzone'})}>
         <input {...getInputProps()} />
@@ -1977,7 +2074,7 @@ Array.prototype.remove = function() {
 };
 
 
-async function myCustomFileGetter(event) {
+async function myCustomFileGetter(event, ind) {
   const files = [];
   const fileList = event.dataTransfer ? event.dataTransfer.files : event.target.files;
 
@@ -2001,18 +2098,21 @@ async function myCustomFileGetter(event) {
       Object.assign(file, {
         preview: URL.createObjectURL(file)
       })
-      uploadedImages.push(file)
+      console.log(uploadedImages)
+      console.log(uploadedImages[ind])
+      console.log(ind)
+      uploadedImages[ind].push(file)
       files.push(file);
-      shownFiles.push(file)
+      shownFiles[ind].push(file)
 
       reader.readAsBinaryString(file)
     }
     if(file.name.endsWith(".txt") || file.name.endsWith(".csv")){
-      uploadedFiles.push(file)
+      uploadedFiles[ind].push(file)
       reader.readAsText(file)
 
       files.push(file);
-      shownFiles.push(file)
+      shownFiles[ind].push(file)
     }
   }
 

@@ -78,7 +78,7 @@
 }
 
 .test-config{
-  padding-top: 30px;
+  padding-top: 5spx;
 }
 
 .FormRow{
@@ -195,4 +195,43 @@ img.center{
 #enter-config{
   text-align: left;
   margin-left: 10px;
+}
+
+#config_name::placeholder{
+  color: #C0C0C0;
+  opacity: 1;
+}
+
+#components::placeholder{
+  color: #C0C0C0;
+  opacity: 1;
+}
+
+#enter-comment::placeholder{
+  color: #C0C0C0;
+  opacity: 1;
+}
+
+#comment-input{
+  margin-top: 5px;
+}
+
+#config_name{
+  margin-bottom: 20px;
+}
+
+#reset{
+  margin-top: 10px;
+}
+
+#posted-entries{
+  text-align: center;
+  font-size: 12pt;
+  font-weight: bold;
+  margin-top: 25px;
+}
+
+#editLog{
+  margin-top: 25px;
+  margin-bottom: 50px;
 }
