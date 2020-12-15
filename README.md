@@ -1,4 +1,4 @@
-# Lyncean Elog (Beta v-2)
+# Lyncean Elog (Beta v-4)
 
 ## Instructions for Installation
 
