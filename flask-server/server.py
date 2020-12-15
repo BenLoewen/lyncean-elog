@@ -11,7 +11,8 @@ import os
 import base64
 app = Flask(__name__)
 
-INSTALLATION_LOCATION = "C:/Users/benja/Desktop/work/elog1.0/"
+#INSTALLATION_LOCATION = "C:/Users/benja/Desktop/work/elog1.0/"
+INSTALLATION_LOCATION = "/home/bloewen/elog/lyncean-elog/"
 
 cursor = None
 db = None
@@ -373,10 +374,6 @@ def saveFile(file,log):
   newFile.close()
 
 def addImage(img,log,entryId,appendedId):
-  print("img:")
-  print(img[0])
-  print("data:")
-  print(img[1])
   name = img[0]
   data = img[1]
   global curr_log
@@ -496,6 +493,47 @@ def getEntries(logId):
       entry["tags"].append(row[0])
   return entries
 
+def getEntriesFromIds(listOfIds):
+  cursor,db=getCursor()
+  entries = []
+  for entryId in listOfIds:
+    for row in cursor.execute('SELECT * FROM entry WHERE id=?;',[entryId]):
+      entry = {}
+      entry["id"] = row[0]
+      entry["author"] = row[2]
+      entry["time"] = row[4]
+      entry["files"] = []
+      entry["images"] = []
+      entries.append(entry)
+  for entry in entries:
+    entryId = entry["id"]
+    for row in cursor.execute('SELECT name,data FROM file WHERE entry=?;',[entryId]):
+      entry["files"].append([row[0],row[1]])
+    for row in cursor.execute('SELECT name,base64 FROM image WHERE entry=?;',[entryId]):
+      entry["images"].append([row[0],row[1]])
+    entry["comments"] = []
+    appendedComments = []
+    for row in cursor.execute('SELECT text,appended FROM comment WHERE entry=?;',[entryId]):
+      text = row[0]
+      appendedId = row[1]
+      print(appendedId)
+      if appendedId==0:
+        entry["comments"].append([text,""])
+      else:
+        appendedComments.append([text,appendedId])
+    print(appendedComments)
+    for appendedComment in appendedComments:
+      text = appendedComment[0]
+      appendedId = appendedComment[1]
+      for row in cursor.execute('SELECT time,author FROM appended WHERE id='+str(appendedId)+';'):
+        time = row[0]
+        author = row[1]
+        entry["comments"].append([text,"-Appended on " + time + " by " + author ])
+    entry["tags"] = []
+    for row in cursor.execute('SELECT tag FROM tag WHERE entry=?;',[entryId]):
+      entry["tags"].append(row[0])
+  return entries
+
 
 def searchLogs(startDate, endDate, configName, log):
   cursor,db=getCursor()
@@ -526,9 +564,58 @@ def searchLogs(startDate, endDate, configName, log):
   print(returnIds)
   return returnIds
 
+#entry(id INTEGER PRIMARY KEY, log INTEGER, author TEXT, type TEXT, submitted TEXT)
+def searchEntries(startDate, endDate, log, tag, keyword):
+  cursor,db=getCursor()
+  candidateIds=[]
+  startTime = startDate.replace("-","/") + ", 00:00:00"
+  endTime = endDate.replace("-","/") + ", 00:00:00"
+  search_keyword = keyword.lower().split(" ")
+  select = 'SELECT id,log FROM entry WHERE submitted>\'' + startTime + '\' AND submitted<\'' + endTime + '\';'
+  for row in cursor.execute(select):
+    candidateIds.append([row[0],row[1]])
+  nextRoundCandidates = []
+  for candidate in candidateIds:
+    if log!="all":
+      for row in cursor.execute('SELECT logtype FROM log WHERE id=?;',[candidate[1]]):
+        if(row[0]==log):
+          nextRoundCandidates.append(candidate[0])
+    else:
+      nextRoundCandidates.append(candidate[0])
+  candidateIds = nextRoundCandidates
+  nextRoundCandidates = []
+  for candidate in candidateIds:
+    if tag!="all":
+      for row in cursor.execute('SELECT tag FROM tag WHERE entry=?;',[candidate]):
+        if(row[0]==tag):
+          nextRoundCandidates.append(candidate)
+    else:
+      nextRoundCandidates.append(candidate)
+  candidateIds = nextRoundCandidates
+  nextRoundCandidates = []
+  for candidate in candidateIds:
+    passed = True
+    if keyword!="":
+      passed = False
+      for row in cursor.execute('SELECT name FROM image WHERE entry=?',[candidate]):
+        for term in search_keyword:
+          if term in str(row[0]).lower():
+            passed = True
+      for row in cursor.execute('SELECT name FROM file WHERE entry=?',[candidate]):
+        for term in search_keyword:
+          if term in str(row[0]).lower():
+            passed = True
+      for row in cursor.execute('SELECT text FROM comment WHERE entry=?',[candidate]):
+        for term in search_keyword:
+          if term in str(row[0]).lower():
+            passed = True
+    if passed:
+      nextRoundCandidates.append(candidate)
+  return nextRoundCandidates
 
-
-
+    #image(name TEXT, base64 TEXT , entry INTEGER, appended INTEGER)
+    #file(name TEXT, data TEXT, entry INTEGER, appended INTEGER)
+    #comment(text INTEGER, entry INTEGER, appended INTEGER)
 
 #All routes
 #add_entry: for adding new log entry
@@ -551,6 +638,25 @@ def search_logs():
 
   return jsonify(results=res)
 
+@app.route('/search_entries', methods=['POST'])
+def search_entries():
+  query = request.get_json()
+  print(query)
+
+  print("received request for entry search")
+  print("...")
+
+  log = query["log"]
+  startDate = query["start_date"]
+  endDate = query["end_date"]
+  tag = query["tag"]
+  keyword = query["keyword"]
+
+  matching = searchEntries(startDate, endDate, log, tag, keyword)
+
+  return jsonify(results=matching)
+
+
 @app.route('/add_entry', methods=['POST'])
 def add_entry():
   query = request.get_json()
@@ -572,8 +678,6 @@ def add_entry():
   print("succesfully added entry to " + log)
   print("...")
   success=True
-
-  screenCapFiles = []
 
   '''
   try:
@@ -609,7 +713,6 @@ def append_to_post():
   print("...")
   success = True
 
-  screenCapFiles = []
 
   '''
   try:
@@ -659,7 +762,7 @@ def screen_cap():
 def upload_screen_cap(name=None):
   name += '.jpg'
   screenCapFiles.append([name, screenCapToBase64(name)])
-  return jsonfiy(success=True)
+  return jsonify(success=True)
 
 def screenCapToBase64(name):
   path = SCREENCAP_FOLDER + name
@@ -676,6 +779,14 @@ def get_log(id=None):
   #  print("Unsucessful attempt to retrieve log: " + str(id))
 
   return jsonify(data = returnData)
+
+@app.route('/get_entries_from_ids', methods=['POST'])
+def get_entries_from_ids():
+  query = request.get_json()
+  ids = query["ids"]
+
+  entries = getEntriesFromIds(ids)
+  return jsonify(entries = entries)
 
 @app.route('/get_entries/<id>', methods=['GET'])
 def get_entries(id=None):
@@ -800,6 +911,9 @@ def fileUpload():
     date = now.strftime("/%Y/%m/%d/")
     file = request.files['file']
     filename = file.filename
+    if(filename=='blob'):
+      info = screenCapFiles.pop(0)
+      filename = info[0]
     log = curr_log
     target = COMMON_FOLDER + str(log) + date
     if not os.path.isdir(target):
