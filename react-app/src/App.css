@@ -110,6 +110,10 @@ img.center{
   width: '70rem';
 }
 
+.vertical-spacing{
+  margin-top: 15px;
+}
+
 #success{
   width: 100%;
   opacity: 70%;
@@ -197,6 +201,12 @@ img.center{
   margin-left: 10px;
 }
 
+#enter-keyword{
+  text-align: left;
+  margin-left: 10px;
+}
+
+
 #config_name::placeholder{
   color: #C0C0C0;
   opacity: 1;
@@ -234,4 +244,13 @@ img.center{
 #editLog{
   margin-top: 25px;
   margin-bottom: 50px;
+}
+
+#select-tag{
+  margin-top: 15px;
+  margin-left: 20px;
+}
+
+#result-entries{
+  margin-bottom: 25px;
 }

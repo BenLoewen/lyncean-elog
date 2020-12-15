@@ -98,6 +98,9 @@ function App() {
   else if(currUrl.indexOf("#/search-logs")==0){
     return(<SearchLogs/>)
   }
+  else if(currUrl.indexOf("#/search-entries")==0){
+    return(<SearchEntries/>)
+  }
   else{
     console.log(currUrl)
     window.location.href = "#/write-to/electronics-log"
@@ -143,6 +146,12 @@ function tick(){
     else if(currUrl.indexOf("#/search-logs")==0){
       ReactDOM.render(<SearchLogs/>, document.getElementById('root'));
     }
+    else if(currUrl.indexOf("#/search-entries")==0){
+      ReactDOM.render(<SearchEntries/>, document.getElementById('root'))
+      if(prev_query!=query){
+
+      }
+    }
     else{
       ReactDOM.render(element, document.getElementById('root'));
       //window.location.reload(false);
@@ -158,6 +167,9 @@ function tick(){
 setInterval(tick, 100);
 
 function checkShortcutImages(){
+  if(!appendingToPost && rootUrl.indexOf("#/write-to/")==-1){
+    return
+  }
   let newFiles = []
   $.ajax({
     type: "GET",
@@ -287,6 +299,53 @@ function getCookie(cname) {
   return "";
 }
 
+function SearchEntries(props){
+  return(<div className="App">
+          <Container>
+            <ElogNavbar/>
+            <Row id="push">
+              <Col xs={4}>
+                <Row>
+                  <div class="spaced-out">
+                    <SelectTag log={"all"} toggle={"All"}/>
+                  </div>
+                </Row>
+                <Row>
+                  <div class="spaced-out">
+                    <EnterKeyword/>
+                  </div>
+                </Row>
+                <Row>
+                  <div class="spaced-out">
+                    <SearchEntryButton/>
+                  </div>
+                </Row>
+              </Col>
+              <Col xs={4}>
+                <div class="spaced-out">
+                  <SelectStartDate/>
+                </div>
+              </Col>
+              <Col xs={4}>
+                <div class="spaced-out">
+                  <SelectEndDate/>
+                </div>
+              </Col>
+            </Row>
+            <Row>
+              <div id="results-title">
+                Results
+              </div>
+            </Row>
+            <Row>
+              <Container id="results">
+
+              </Container>
+            </Row>
+          </Container>
+        </div>);
+}
+
 class SearchLogs extends React.Component{
   constructor(props){
     super(props)
@@ -338,6 +397,97 @@ class SearchLogs extends React.Component{
   }
 }
 
+function EnterKeyword(props){
+  return(<div>
+    <div id="enter-keyword">
+      Keyword
+    </div>
+    <Form>
+      <Form.Group controlId="formKeyword">
+        <Form.Control id="keyword" />
+      </Form.Group>
+    </Form>
+   </div>);
+}
+
+function SearchEntryButton(props){
+  function submit(){
+    let keyword = $("#keyword").val()
+    let query_parts = query.split(",")
+    let now = new Date();
+    let end_date = now.toISOString().slice(0,10);
+    now.setDate(1)
+    let start_date = now.toISOString().slice(0,10)
+    let tag = "all"
+    let log = "all"
+    for(var i=0; i<query_parts.length; i++){
+      let part = query_parts[i].split("=")
+      if(part[0]=="start"){
+        start_date = part[1]
+      }
+      else if(part[0]=="end"){
+        end_date = part[1]
+      }
+      else if(part[0]=="log"){
+        log = part[1]
+      }
+      else if(part[0]=="tag"){
+        tag = part[1]
+      }
+    }
+    searchEntries(start_date,end_date,log,tag,keyword)
+  }
+
+  return(<Button variant="primary" onClick={() => submit()}>
+          Search
+         </Button>);
+}
+
+async function searchEntries(start_date, end_date, log, tag, keyword){
+  let searchQuery = {"start_date":start_date,"end_date":end_date,"log":log,"tag":tag,"keyword":keyword}
+  let ids = []
+
+  $.ajax({
+    type: "POST",
+    url: "/search_entries",
+    dataType : "json",
+    async: false,
+    contentType: "application/json; charset=utf-8",
+    data : JSON.stringify(searchQuery),
+    success: function(result){
+        ids = result["results"]
+    },
+    error: function(request, status, error){
+        console.log("Error");
+        console.log(request)
+        console.log(status)
+        console.log(error)
+    }
+  })
+
+  let entriesQuery = {"ids":ids,"this":123}
+  let entries = []
+  $.ajax({
+    type: "POST",
+    url: "/get_entries_from_ids",
+    dataType : "json",
+    async: false,
+    contentType: "application/json; charset=utf-8",
+    data : JSON.stringify(entriesQuery),
+    success: function(result){
+        entries = result["entries"]
+    },
+    error: function(request, status, error){
+        console.log("Error");
+        console.log(request)
+        console.log(status)
+        console.log(error)
+    }
+  })
+
+  ReactDOM.render(<UnappendableEntries entries={entries}/>, document.getElementById("results"))
+}
+
 function EnterConfig(props){
   return(<div>
           <div id="enter-config">
@@ -386,11 +536,10 @@ function SearchLogButton(props){
 
 async function searchLogs(start_date, end_date, log, config_name){
   let searchQuery = {"start_date":start_date,"end_date":end_date,"log":log,"config_name":config_name}
-  console.log(searchQuery)
   let ids = []
 
   $.ajax({
-    type: "POST",
+    type: "GET",
     url: "/search_logs",
     dataType : "json",
     async: false,
@@ -530,9 +679,153 @@ const SelectEndDate = () => {
   );
 };
 
+class SelectTag extends React.Component{
+  constructor(props){
+    super(props)
+    let tag_toggle = "All"
+    let tag_menu = []
+
+    let log_toggle = "All"
+    let log_menu = []
+
+    //CHECK QUERY ARGS
+    let split_query = query.split(",")
+    let query_arg = ''
+    for(query_arg of split_query){
+      let arg = query_arg.split("=")
+      let name = arg[0]
+      let val = arg[1]
+      if(name==="log"){
+        log_toggle = val.charAt(0).toUpperCase() + val.slice(1)
+
+        tag_toggle = "All"
+        tag_menu = []
+        if(val!=="All"){
+          let tag = ''
+          for(tag of glob_tags[val]){
+            let tag_key = tag.replace(" ","_")
+            tag_menu.push(<Dropdown.Item eventKey={tag_key}>{tag}</Dropdown.Item>)
+          }
+          tag_menu.push(<Dropdown.Item eventKey={"all"}>{"All"}</Dropdown.Item>)
+        }
+      }
+    }
+
+    var log_opt = ''
+    for(log_opt of list_of_logs){
+      let eventKey = log_opt.charAt(0).toLowerCase() + log_opt.slice(1);
+      let name = log_opt.charAt(0).toUpperCase() + log_opt.slice(1);
+      log_menu.push(<Dropdown.Item eventKey={eventKey}>{name}</Dropdown.Item>)
+    }
+    log_menu.push(<Dropdown.Item eventKey={"all"}>{"All"}</Dropdown.Item>)
+    this.handleLogSelect = this.handleLogSelect.bind(this)
+    this.handleTagSelect = this.handleTagSelect.bind(this)
+
+
+    this.state = {log_toggle:log_toggle,log_menu:log_menu,tag_toggle:tag_toggle,tag_menu:tag_menu}
+  }
+
+  handleLogSelect(key){
+    let new_query=query.split(",")
+    if(query.length===0){
+      new_query = []
+    }
+    let log_in_query = false
+    for(var i=0; i<new_query.length;i++){
+      let part = new_query[i].split("=")
+      if(part[0]==="log"){
+        new_query[i] = "log=" + key
+        log_in_query = true
+      }
+      if(part[0]=="tag"){
+        new_query = new_query.slice(0,i).concat(new_query.slice(i+1))
+        i += -1
+      }
+    }
+    if(!log_in_query){
+      new_query.push("log=" + key)
+    }
+    window.location.href = rootUrl + "?" + new_query.join(",")
+    let newToggle = key.charAt(0).toUpperCase() + key.slice(1)
+
+
+    //Update tag menu
+    let tag_toggle = "All"
+    let tag_menu = []
+    if(key!=="All"){
+      let tag = ''
+      for(tag of glob_tags[key]){
+        let tag_key = tag.replace(" ","_")
+        tag_menu.push(<Dropdown.Item eventKey={tag_key}>{tag}</Dropdown.Item>)
+      }
+      tag_menu.push(<Dropdown.Item eventKey={"all"}>{"All"}</Dropdown.Item>)
+    }
+    console.log(key)
+    this.setState({log_toggle:newToggle,log_menu:this.state.log_menu,tag_toggle:tag_toggle,tag_menu:tag_menu})
+  }
+
+  handleTagSelect(key){
+    let new_query=query.split(",")
+    if(query.length===0){
+      new_query = []
+    }
+    let tag_in_query = false
+    for(var i=0; i<new_query.length;i++){
+      let part = new_query[i].split("=")
+      if(part[0]==="tag"){
+        new_query[i] = "tag=" + key
+        tag_in_query = true
+      }
+    }
+    if(!tag_in_query){
+      new_query.push("tag=" + key)
+    }
+    window.location.href = rootUrl + "?" + new_query.join(",")
+    let newToggle = key.replace("_"," ")
+    newToggle = newToggle.charAt(0).toUpperCase() + newToggle.slice(1)
+    this.setState({log_toggle:this.state.log_toggle,log_menu:this.state.log_menu,tag_toggle:newToggle,tag_menu:this.state.tag_menu})
+  }
+
+  render(){
+    return(<Container>
+            <Row>
+              <Container>
+                <Row>
+                  <div id='select-log'>Log</div>
+                </Row>
+                <Dropdown id="dropdown-left" onSelect={this.handleLogSelect}>
+                  <Dropdown.Toggle variant="secondary" id="dropdown-basic">
+                    {this.state.log_toggle}
+                  </Dropdown.Toggle>
+
+                  <Dropdown.Menu>
+                    {this.state.log_menu}
+                  </Dropdown.Menu>
+                </Dropdown>
+              </Container>
+            </Row>
+            <Row>
+              <Container>
+                <Row>
+                  <div id='select-tag'>Tag</div>
+                </Row>
+                <Dropdown id="dropdown-left" onSelect={this.handleTagSelect}>
+                  <Dropdown.Toggle variant="secondary" id="dropdown-basic">
+                    {this.state.tag_toggle}
+                  </Dropdown.Toggle>
+
+                  <Dropdown.Menu>
+                    {this.state.tag_menu}
+                  </Dropdown.Menu>
+                </Dropdown>
+              </Container>
+            </Row>
+          </Container>);
+  }
+}
+
 class SelectLog extends React.Component{
   constructor(props){
-    console.log(props.log)
     super(props)
     let toggle = props.log.charAt(0).toUpperCase() + props.log.slice(1)
     let menu = []
@@ -562,12 +855,10 @@ class SelectLog extends React.Component{
   }
 
   handleSelect(key){
-    console.log(key)
     let new_query=query.split(",")
     if(query.length===0){
       new_query = []
     }
-    console.log(new_query)
     let log_in_query = false
     for(var i=0; i<new_query.length;i++){
       let part = new_query[i].split("=")
@@ -705,6 +996,25 @@ function Entries(props){
     }
   }
   return result
+}
+
+function UnappendableEntries(props){
+  let result=[]
+  let entries = props.entries
+  let i = 0
+  for(i=0; i< entries.length; i++){
+    let entry = entries[i]
+    if(entry["comments"].length!=0){
+      result.push(<ListGroupItem>
+                    <Row>
+                      <Col xs={12}>
+                        <Post id={entry["id"]} files={entry["files"]} images={entry["images"]} comments={entry["comments"]} time={entry["time"]} author={entry["author"]} tags={entry["tags"]}/>
+                      </Col>
+                    </Row>
+                  </ListGroupItem>)
+    }
+  }
+  return (<div id="result-entries">{result}</div>)
 }
 
 function AppendButton(props){
@@ -2126,6 +2436,7 @@ function ElogNavbar(props){
               <Nav.Link href="#/write-to/operations-log">Add Log Entry</Nav.Link>
               <Nav.Link href="#/view/recent-logs">Recent Logs</Nav.Link>
               <Nav.Link href="#/search-logs">Search Logs</Nav.Link>
+              <Nav.Link href="#/search-entries">Search Entries</Nav.Link>
             </Nav>
             <Navbar.Brand href="#/write-to/operations-log">Lyncean Elog</Navbar.Brand>
           </Navbar>);
