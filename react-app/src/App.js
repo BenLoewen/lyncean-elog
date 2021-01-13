@@ -432,7 +432,7 @@ function SearchEntryButton(props){
         log = part[1]
       }
       else if(part[0]=="tag"){
-        tag = part[1]
+        tag = part[1].replace("_"," ")
       }
     }
     searchEntries(start_date,end_date,log,tag,keyword)
@@ -1875,7 +1875,7 @@ function AppendForm(props) {
           />
         </Form.Group>
       </Form.Row>
-      <Button type="submit">Submit form</Button>
+      <Button type="submit">Submit Entry</Button>
     </Form>
     <div id="empty"></div>
     </div>
@@ -1920,11 +1920,9 @@ function appendToEntry(logId,entryId,author,entryFiles,entryImages,comment){
           appendingToPost = false
           console.log(rootUrl)
           if(rootUrl.indexOf("#/view/log")==0){
-            console.log('shout')
             ReactDOM.render(<ViewLog/>, document.getElementById('root'));
           }
           else if(rootUrl.indexOf("#/write-to/")==0){
-            console.log('shout')
             ReactDOM.render(<EditLog logId={logId}/>, document.getElementById("edit-log"))
           }
         }else{
@@ -1939,6 +1937,26 @@ function appendToEntry(logId,entryId,author,entryFiles,entryImages,comment){
         console.log(error)
     }
   })
+
+  for(var i=0;i<entryImages.length;i++){
+    let thisImage = entryImages[i]
+
+    const data = new FormData();
+    data.append('file',thisImage)
+    data.append('filename',thisImage["name"])
+    data.append('log',currentLog)
+
+    //uploadImage(data)
+    //uploadImage2(data)
+    fetch('http://localhost:4040/upload', {
+      method: 'POST',
+      body: data,
+    }).then((response) => {
+      response.json().then((body) => {
+        this.setState({ imageURL: `http://localhost:4040/${body.file}` });
+      });
+    });
+  }
 }
 
 function appendEntry(log,author,entryFiles,entryImages,comment){
@@ -1977,7 +1995,7 @@ function appendEntry(log,author,entryFiles,entryImages,comment){
           uploadedFiles[1] = []
           files[1] = []
           shownFiles[1] = []
-          ReactDOM.render(<AddLogEntry log={currentLog}/>, document.getElementById('root'));
+          //ReactDOM.render(<AddLogEntry log={currentLog}/>, document.getElementById('root'));
         }else{
           sendAlert(false)
         }
@@ -2013,6 +2031,7 @@ function appendEntry(log,author,entryFiles,entryImages,comment){
 
   if(succ){
     ReactDOM.render(<AddLogEntry log={currentLog}/>, document.getElementById('root'));
+    ReactDOM.render(<FileDrop id="file-drop" newPost={true}/>, document.getElementById("file-drop-append-to-log"));
   }
 }
 
@@ -2356,6 +2375,7 @@ function FileDrop(props) {
       <div {...getRootProps({className: 'dropzone'})}>
         <input {...getInputProps()} />
         <span>Drag 'n' drop some files here, or click to select files</span>
+        <div>(Select window and press F11 to upload screenshot)</div>
       </div>
       <hr/>
       <div>
