@@ -20,8 +20,8 @@ cursor = None
 db = None
 
 
-INSTALLATION_LOCATION = "C:/Users/benja/Desktop/work/elog1.0/"
-#INSTALLATION_LOCATION = "/home/bloewen/elog/lyncean-elog/"
+#INSTALLATION_LOCATION = "C:/Users/benja/Desktop/work/elog1.0/"
+INSTALLATION_LOCATION = "/home/bloewen/elog/lyncean-elog/"
 
 CONFIG_FOLDER = INSTALLATION_LOCATION + "config/configs.txt"
 COMMON_FOLDER = INSTALLATION_LOCATION + "common/"

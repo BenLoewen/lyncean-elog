@@ -9,6 +9,7 @@ import shutil
 import urllib
 import os
 import base64
+import logging
 app = Flask(__name__)
 
 #INSTALLATION_LOCATION = "C:/Users/benja/Desktop/work/elog1.0/"
@@ -21,12 +22,16 @@ curr_entryId = 0
 curr_logId = 0
 curr_appendedId = 1
 logIds = {"electronics":1,"operations":2}
-database_path = 'data/elog'
+database_path = INSTALLATION_LOCATION + 'flask-server/data/elog'
 CONFIG_FOLDER = INSTALLATION_LOCATION + "config/configs.txt"
 COMMON_FOLDER = INSTALLATION_LOCATION + "common/"
 SCREENCAP_FOLDER = INSTALLATION_LOCATION + "shortcuts/screenCap/captures/"
 
 screenCapFiles = []
+screenCapFilesInd = 0
+
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
 
 #All database functions
 #createDatabase
@@ -365,7 +370,7 @@ def saveFile(file,log):
   data = file[1]
   now = datetime.now()
   date = now.strftime("/%Y/%m/%d/")
-  directory = COMMON_FOLDER + str(log) + date
+  directory = COMMON_FOLDER + date
   path = directory + name
   if not os.path.isdir(directory):
       os.mkdir(directory)
@@ -561,7 +566,6 @@ def searchLogs(startDate, endDate, configName, log):
             searchTermInName = True
       if searchTermInName:
         returnIds.append(logId)
-  print(returnIds)
   return returnIds
 
 #entry(id INTEGER PRIMARY KEY, log INTEGER, author TEXT, type TEXT, submitted TEXT)
@@ -569,9 +573,10 @@ def searchEntries(startDate, endDate, log, tag, keyword):
   cursor,db=getCursor()
   candidateIds=[]
   startTime = startDate.replace("-","/") + ", 00:00:00"
-  endTime = endDate.replace("-","/") + ", 00:00:00"
+  endTime = endDate.replace("-","/") + ", 24:00:00"
   search_keyword = keyword.lower().split(" ")
-  select = 'SELECT id,log FROM entry WHERE submitted>\'' + startTime + '\' AND submitted<\'' + endTime + '\';'
+  select = 'SELECT id,log FROM entry WHERE submitted>=\'' + startTime + '\' AND submitted<=\'' + endTime + '\';'
+  print(select)
   for row in cursor.execute(select):
     candidateIds.append([row[0],row[1]])
   nextRoundCandidates = []
@@ -678,6 +683,9 @@ def add_entry():
   print("succesfully added entry to " + log)
   print("...")
   success=True
+  global screenCapFiles, screenCapFilesInd
+  screenCapFiles = []
+  screenCapFilesInd = 0
 
   '''
   try:
@@ -712,6 +720,9 @@ def append_to_post():
   print("succesfully appended to entry with id:" + str(entryId))
   print("...")
   success = True
+  global screenCapFiles, screenCapFilesInd
+  screenCapFiles = []
+  screenCapFilesInd = 0
 
 
   '''
@@ -756,10 +767,12 @@ def add_config():
 
 @app.route('/screen_cap', methods=['GET'])
 def screen_cap():
+  global screenCapFiles
   return jsonify(screenCapFiles = screenCapFiles)
 
 @app.route('/upload_screen_cap/<name>', methods=['POST'])
 def upload_screen_cap(name=None):
+  global screenCapFiles
   name += '.jpg'
   screenCapFiles.append([name, screenCapToBase64(name)])
   return jsonify(success=True)
@@ -907,21 +920,27 @@ def get_configs():
 @app.route('/upload', methods=['POST'])
 def fileUpload():
     global curr_log
+    global screenCapFilesInd
     now = datetime.now()
     date = now.strftime("/%Y/%m/%d/")
     file = request.files['file']
     filename = file.filename
     if(filename=='blob'):
-      info = screenCapFiles.pop(0)
-      filename = info[0]
+      time = now.strftime('%H:%M:%S')
+      filename = time + '_' + str(screenCapFilesInd)
+      screenCapFilesInd += 1
     log = curr_log
-    target = COMMON_FOLDER + str(log) + date
+    target = COMMON_FOLDER + date
     if not os.path.isdir(target):
         os.mkdir(target)
     destination="/".join([target, filename])
     file.save(destination)
     response = "success?"
     return response
+
+@app.route('/close', methods=['POST'])
+def close():
+    os.system("pkill -f firefox")
 
 def getConfigNames():
   names = []
@@ -961,12 +980,10 @@ def getConfigsFromDatabase():
   configs = {}
   select = "SELECT * FROM part;"
   for row in cursor.execute(select):
-    #row = (name, pname, pconfig)
     if row[0] not in configs:
       configs[row[0]] = [[row[1],row[2]],]
     else:
       configs[row[0]].append([row[1],row[2]])
-  #test(operator, name, entry)
   return configs
 
 
@@ -979,8 +996,6 @@ def runAutojobs():
   os.system("python autojobs.py")
 
 if __name__ == '__main__':
-  #name = "Thu_Dec_10_10_15_43_PST_2020.jpg"
-  #screenCapFiles.append([name, screenCapToBase64(name)])
   if os.path.isfile(database_path):
     setUpDatabase()
   else:

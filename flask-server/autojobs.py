@@ -8,19 +8,22 @@ from urllib.request import urlopen
 import os
 app = Flask(__name__)
 
+INSTALLATION_LOCATION = "/home/bloewen/elog/lyncean-elog/"
+
 cursor = None
 db = None
 logIds = {"electronics":1, "operations": 2}
-UPLOAD_FOLDER = "C:/Users/benja/Desktop/work/elog1.0/react-app/public/uploads/"
-CONFIG_FOLDER = "C:/Users/benja/Desktop/work/elog1.0/config/configs.txt"
-COMMON_FOLDER = "C:/Users/benja/Desktop/work/elog1.0/common/"
+
+
+CONFIG_FOLDER = INSTALLATION_LOCATION + "config/configs.txt"
+COMMON_FOLDER = INSTALLATION_LOCATION + "common/"
 
 
 def openDatabase():
   global cursor
   global db
   db = sqlite3.connect(':memory:')
-  db = sqlite3.connect('data/elog')
+  db = sqlite3.connect(INSTALLATION_LOCATION + '/flask-server/data/elog')
   cursor = db.cursor()
 
 def closeDatabase():
@@ -72,20 +75,13 @@ def createDailyFolders():
   now2 = datetime.now
   date = now.strftime("%Y/%m/%d")
   date_parts = date.split('/')
-  for log in logIds:
-    upload = UPLOAD_FOLDER + str(log)
-    common = COMMON_FOLDER + str(log)
-    if not os.path.isdir(upload):
-      os.mkdir(upload)
+  common = COMMON_FOLDER
+  if not os.path.isdir(common):
+    os.mkdir(common)
+  for date_part in date_parts:
+    common += '/' + date_part
     if not os.path.isdir(common):
-        os.mkdir(common)
-    for date_part in date_parts:
-      upload += '/' + date_part
-      common += '/' + date_part
-      if not os.path.isdir(upload):
-          os.mkdir(upload)
-      if not os.path.isdir(common):
-          os.mkdir(common)
+      os.mkdir(common)
 
 def createTodaysLogs():
   global cursor
