@@ -10,10 +10,8 @@ import urllib
 import os
 import base64
 import logging
+from collections import defaultdict
 app = Flask(__name__)
-
-#INSTALLATION_LOCATION = "C:/Users/benja/Desktop/work/elog1.0/"
-INSTALLATION_LOCATION = "/home/bloewen/elog/lyncean-elog/"
 
 cursor = None
 db = None
@@ -21,17 +19,47 @@ curr_log = None
 curr_entryId = 0
 curr_logId = 0
 curr_appendedId = 1
-logIds = {"electronics":1,"operations":2}
-database_path = INSTALLATION_LOCATION + 'flask-server/data/elog'
-CONFIG_FOLDER = INSTALLATION_LOCATION + "config/configs.txt"
-COMMON_FOLDER = INSTALLATION_LOCATION + "common/"
-SCREENCAP_FOLDER = INSTALLATION_LOCATION + "shortcuts/screenCap/captures/"
+
+logIds = {}
+tags = defaultdict(list)
+
+INSTALLATION_LOCATION, database_path, CONFIG_FOLDER, COMMON_FOLDER, SCREENCAP_FOLDER, TAG_FILE = None, None, None, None, None, None
 
 screenCapFiles = []
 screenCapFilesInd = 0
 
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
+
+
+def get_folders():
+  global INSTALLATION_LOCATION, database_path, CONFIG_FOLDER, COMMON_FOLDER, SCREENCAP_FOLDER, TAG_FILE
+  cwd = os.getcwd()
+  INSTALLATION_LOCATION = os.path.dirname(cwd)
+  database_path = INSTALLATION_LOCATION + '/flask-server/data/elog'
+  CONFIG_FOLDER = INSTALLATION_LOCATION + "/config/configs.txt"
+  TAG_FILE = INSTALLATION_LOCATION + "/config/tags.txt"
+  COMMON_FOLDER = INSTALLATION_LOCATION + "/common/"
+  SCREENCAP_FOLDER = INSTALLATION_LOCATION + "/shortcuts/screenCap/captures/"
+
+def get_tags():
+  global logIds, tags
+  f = open(TAG_FILE, 'r')
+  lines = f.readlines()
+  all_logs = []
+  for line in lines:
+    if line.startswith("#"):
+      log_name = line.strip().lower()[1:]
+      all_logs.append(log_name)
+      logIds[log_name] = len(all_logs)
+    else:
+      tag_name = line.strip()
+      if len(tag_name)>0:
+        curr_log = all_logs[-1]
+        tags[curr_log].append(tag_name)
+  for log in tags:
+    tags[log].insert(0,"None")
+
 
 #All database functions
 #createDatabase
@@ -47,7 +75,7 @@ def createDatabase():
   print("setting up the database...")
   cursor.execute('''
     CREATE TABLE log(id INTEGER PRIMARY KEY, title TEXT, logtype TEXT,
-                      committed TEXT, header INTEGER)
+                      date TEXT, header INTEGER)
   ''')
   print("created table: log")
   cursor.execute('''
@@ -80,24 +108,12 @@ def createDatabase():
   ''')
   print("created table: test")
   cursor.execute('''
-    CREATE TABLE part(name TEXT, pname TEXT, pconfig TEXT)
+    CREATE TABLE part(name TEXT, pname TEXT, pconfig TEXT, unique(name,pname,pconfig))
   ''')
   print("created table: part")
-  cursor.execute('''
-    CREATE TABLE commits(logtype TEXT, numcommits INTEGER)
-  ''')
-  print("created table: autocommit")
-  cursor.execute('''
-    CREATE TABLE autocommit(logtype TEXT, shouldcommit BOOLEAN)
-  ''')
-  print("created table: commits")
   db.commit()
   print("all tables have been committed to the database")
 
-  for log in logIds:
-    cursor.execute("INSERT INTO autocommit VALUES (?,1)", [log])
-    cursor.execute("INSERT INTO commits VALUES (?,0)", [log])
-  print("autocommits have been set to be on for all logs")
   db.commit()
   print("...")
 
@@ -137,9 +153,12 @@ def commitDatabase():
   print("changes committed")
 
 def fetchIds():
+  fetchEntryId()
+  fetchAppendedId()
+  fetchLogId()
+
+def fetchLogId():
   cursor,db = getCursor()
-  global curr_appendedId
-  global curr_entryId
   global curr_logId
   select = "SELECT MAX(id) FROM log;"
   for row in cursor.execute(select):
@@ -148,13 +167,31 @@ def fetchIds():
       curr_logId = 0
     else:
       curr_logId = int(max_id) + 1
-  select = "SELECT MAX(id) FROM entry;"
-  for row in cursor.execute(select):
-    max_id = row[0]
-    if max_id is None:
-      curr_entryId = 0
-    else:
-      curr_entryId = int(max_id) + 1
+
+#entry(id INTEGER PRIMARY KEY, log INTEGER, author TEXT, type TEXT, submitted TEXT)
+def deleteTodaysLogs():
+  cursor,db = getCursor()
+  now = datetime.now()
+  date = now.strftime("%Y/%m/%d")
+  start = now.strftime("%Y/%m/%d, 00:00:00")
+  end = now.strftime("%Y/%m/%d, 23:59:59")
+  delete_test = "DELETE FROM test WHERE time>'" + start + "' AND time<'" + end + "';"
+  delete_entries = "DELETE FROM entry WHERE submitted>'" + start + "' AND submitted<'" + end + "';"
+  delete_log = "DELETE FROM log WHERE date='" + date + "';"
+  delete_comments = "DELETE FROM comment WHERE entry IN (SELECT id FROM entry WHERE submitted>'" + start + "' AND submitted<'" + end + "');"
+  delete_images = "DELETE FROM image WHERE entry IN (SELECT id FROM entry WHERE submitted>'" + start + "' AND submitted<'" + end + "');"
+  delete_tags = "DELETE FROM tag WHERE entry IN (SELECT id FROM entry WHERE submitted>'" + start + "' AND submitted<'" + end + "');"
+  cursor.execute(delete_comments)
+  cursor.execute(delete_images)
+  cursor.execute(delete_tags)
+  cursor.execute(delete_test)
+  cursor.execute(delete_entries)
+  cursor.execute(delete_log)
+  db.commit()
+
+def fetchAppendedId():
+  cursor,db = getCursor()
+  global curr_appendedId
   select = "SELECT MAX(id) FROM appended;"
   for row in cursor.execute(select):
     max_id = row[0]
@@ -163,89 +200,46 @@ def fetchIds():
     else:
       curr_appendedId = int(max_id) + 1
 
-def fetchLogs():
+def fetchEntryId():
   cursor,db = getCursor()
-  select = "SELECT * FROM log;"
+  global curr_entryId
+  select = "SELECT MAX(id) FROM entry;"
   for row in cursor.execute(select):
-    print(row)
+    max_id = row[0]
+    if max_id is None:
+      curr_entryId = 0
+    else:
+      curr_entryId = int(max_id) + 1
 
-def commitLog(log):
+def printLogs():
+  cursor,db = getCursor()
+  for row in cursor.execute('select date from log;'):
+    print(row[0])
+
+def headerExists(log):
   cursor,db = getCursor()
   now = datetime.now()
-  #Get ID of log
-  logId = getOpenLogId(log)
-  #Update number of commits on log
-  numCommits = getNumCommits(log)
-  #This prevents two ids from being the same, since end of id = logId + numCommitsForTheDay
-  if(numCommits>=10):
-    return False
-  print(numCommits)
-  update2 = "UPDATE commits SET numcommits=?;"
-  cursor.execute(update2,[numCommits+1])
-  #Commit old log
-  date_time = now.strftime("%Y/%m/%d, %H:%M:%S")
-  update = "UPDATE log SET committed=? WHERE id=?;"
-  data_tuple = (date_time,logId)
-  cursor.execute(update,data_tuple)
-  #Create new log
-  numCommits+=1
-  date_id = now.strftime("%Y%m%d")
-  date = now.strftime("%Y/%m/%d")
-  id = date_id + str(logIds[log]) + str(numCommits)
-  insert = '''
-            INSERT INTO log (TITLE,ID,LOGTYPE,COMMITTED,HEADER)
-            VALUES (?, ?, ?, NULL, NULL);
-            '''
-  data_tuple = (log.capitalize() + " Log " + date + " (" + str(numCommits) + ")", int(id),log)
-  cursor.execute(insert, data_tuple)
-  db.commit()
-  return True
-
-def changeAutoCommit(log,value):
-  global db
-  cursor,db = getCursor()
-  update = "UPDATE autocommit SET shouldcommit=? WHERE logtype=?;"
-  cursor.execute(update,[value,log])
-  db.commit()
-  print('Updated autocommit')
-
-def getAutoCommit(log):
-  global db
-  cursor,db = getCursor()
-  select = 'SELECT shouldcommit FROM autocommit WHERE logtype=?'
+  date_time = now.strftime("%Y/%m/%d")
+  select = 'SELECT MAX(date) FROM log WHERE logtype =?;'
   for row in cursor.execute(select,[log]):
-    return row[0]
-
-def headerExists(logId):
-  cursor,db = getCursor()
-  select = 'SELECT header FROM log WHERE id =?;'
-  print(logId)
-  for row in cursor.execute(select,[logId]):
-    if row[0] is None:
-      return False
-    else:
+    if row[0] == date_time:
       return True
-  print("Error! Checking if header exists for log with ID that does not exist!")
+    else:
+      return False
   return False
-
-def getNumCommits(log):
-  cursor,db = getCursor()
-  select = 'SELECT numcommits FROM commits WHERE logtype =?;'
-  for row in cursor.execute(select,[log]):
-    return row[0]
 
 def addEntry(author,log):
   cursor,db = getCursor()
   global curr_log
   curr_log = log
   global curr_entryId
-  logId = getOpenLogId(log)
+  global logIds
   #Get ID of entry
-  fetchIds()
-  curr_entryId+=1
+  fetchEntryId()
   entryId = str(curr_entryId)
   now = datetime.now()
   date_time = now.strftime("%Y/%m/%d, %H:%M:%S")
+  logId = now.strftime("%Y%m%d") + str(logIds[log])
   #Insert entry into database
   insert = '''
           INSERT INTO ENTRY (SUBMITTED,AUTHOR,LOG,ID,TYPE)
@@ -254,22 +248,36 @@ def addEntry(author,log):
   data_tuple = (date_time, author, int(logId), int(entryId), log)
   cursor.execute(insert, data_tuple)
   db.commit()
-  print("inserted new entry into entry table")
   return entryId,logId
 
-def getOpenLogId(log):
-  #log log(id INTEGER PRIMARY KEY, title TEXT, logtype TEXT,committed TEXT, header INTEGER)
+def createLog(log):
+  #log log(id INTEGER PRIMARY KEY, title TEXT, logtype TEXT,date TEXT, header INTEGER)
+  global logIds
   cursor,db = getCursor()
-  select = 'SELECT MAX(id) FROM log WHERE logtype="' + log + '";'
-  for row in cursor.execute(select):
-    return row[0]
+  now = datetime.now()
+  date = now.strftime("%Y/%m/%d")
+  date_id = now.strftime("%Y%m%d")
+  print("creating log for today")
+  logName = log.capitalize()
+  id_ = date_id + str(logIds[log])
+  insert = '''
+        INSERT INTO LOG (TITLE,ID,LOGTYPE,DATE,HEADER)
+        VALUES (?, ?, ?, ?, NULL);
+        '''
+  data_tuple = (logName + " Log " + date, int(id_), log, date)
+  cursor.execute(insert, data_tuple)
+  db.commit()
 
 def addTestConfiguration(log,operator,name,pnames,pconfigs):
   cursor,db = getCursor()
+  createLog(log)
   entryId,logId = addEntry(operator,log)
   addTest(operator,name,entryId)
-  for i in range(len(pnames)):
-    addPart(name,pnames[i],pconfigs[i])
+  try:
+    for i in range(len(pnames)):
+      addPart(name,pnames[i],pconfigs[i])
+  except Exception:
+    pass
   insert = '''
           UPDATE LOG
           SET header=?
@@ -318,7 +326,6 @@ def addLogPost(log, author, comment, files, images, tags):
 
 def appendToLogPost(logId, entryId, author, comment, files, images):
   appendedId = addAppendedStamp(author)
-  print(appendedId)
   log = getLogType(logId)
   addComment(comment,entryId,appendedId)
   for f in files:
@@ -369,11 +376,13 @@ def saveFile(file,log):
   name = file[0]
   data = file[1]
   now = datetime.now()
-  date = now.strftime("/%Y/%m/%d/")
-  directory = COMMON_FOLDER + date
+  date = now.strftime("/%Y/%m/%d/").split("/")
+  directory = COMMON_FOLDER
+  for part in date:
+    directory += part + "/"
+    if not os.path.isdir(directory):
+        os.mkdir(directory)
   path = directory + name
-  if not os.path.isdir(directory):
-      os.mkdir(directory)
   newFile = open(path, 'w')
   newFile.write(data)
   newFile.close()
@@ -402,7 +411,6 @@ def addComment(text,entryId,appendedId):
           INSERT INTO COMMENT (TEXT,ENTRY,APPENDED)
           VALUES (?, ?, ?);
           '''
-  print(text)
   data_tuple = (text,entryId,appendedId)
   cursor.execute(insert, data_tuple)
   db.commit()
@@ -419,19 +427,6 @@ def addTag(tag,entryId):
   cursor.execute(insert, data_tuple)
   db.commit()
   print("inserted new tag into tag table")
-
-def getRecentLogData():
-  cursor,db = getCursor()
-  ids = []
-  end_date = datetime.today() + timedelta(days=1)
-  start_date = datetime.today() - timedelta(days=7)
-  start_id = start_date.strftime("%Y%m%d") + "00"
-  end_id = end_date.strftime("%Y%m%d") + "00"
-  for row in cursor.execute('SELECT id FROM log WHERE committed IS NULL AND header IS NOT NULL'):
-    ids.append(row[0])
-  for row in cursor.execute('SELECT id FROM log WHERE committed IS NOT NULL AND id>=? AND ?>=id ORDER BY committed;',(start_id,end_id)):
-    ids.append(row[0])
-  return ids
 
 def getLogData(logId):
   cursor,db = getCursor()
@@ -480,12 +475,10 @@ def getEntries(logId):
     for row in cursor.execute('SELECT text,appended FROM comment WHERE entry=?;',[entryId]):
       text = row[0]
       appendedId = row[1]
-      print(appendedId)
       if appendedId==0:
         entry["comments"].append([text,""])
       else:
         appendedComments.append([text,appendedId])
-    print(appendedComments)
     for appendedComment in appendedComments:
       text = appendedComment[0]
       appendedId = appendedComment[1]
@@ -506,6 +499,7 @@ def getEntriesFromIds(listOfIds):
       entry = {}
       entry["id"] = row[0]
       entry["author"] = row[2]
+      entry["logId"] = row[1]
       entry["time"] = row[4]
       entry["files"] = []
       entry["images"] = []
@@ -521,12 +515,10 @@ def getEntriesFromIds(listOfIds):
     for row in cursor.execute('SELECT text,appended FROM comment WHERE entry=?;',[entryId]):
       text = row[0]
       appendedId = row[1]
-      print(appendedId)
       if appendedId==0:
         entry["comments"].append([text,""])
       else:
         appendedComments.append([text,appendedId])
-    print(appendedComments)
     for appendedComment in appendedComments:
       text = appendedComment[0]
       appendedId = appendedComment[1]
@@ -540,33 +532,59 @@ def getEntriesFromIds(listOfIds):
   return entries
 
 
-def searchLogs(startDate, endDate, configName, log):
+
+def getDates():
   cursor,db=getCursor()
-  returnIds = []
-  candidateIds = []
-  startTime = startDate.replace("-","/") + ", 00:00:00"
-  endTime = endDate.replace("-","/") + ", 00:00:00"
-  select = 'SELECT id,header FROM log WHERE logtype=\'' + log+ '\' and committed>\'' + startTime + '\' and committed<\'' + endTime + '\';'
-  if(log=="all"):
-    select = 'SELECT id,header FROM log WHERE committed>\'' + startTime + '\' and committed<\'' + endTime + '\';'
+  dates = {}
+  select = 'SELECT id FROM log;'
+  ids = []
   for row in cursor.execute(select):
-    candidateIds.append([row[0],row[1]])
-  for candidate in candidateIds:
-    logId = candidate[0]
-    headerId = candidate[1]
-    if(configName==""):
-      returnIds.append(logId)
-    else:
-      searchTermInName = False
-      for row in cursor.execute('SELECT name FROM test WHERE entry=?',[headerId]):
-        name = row[0].lower()
-        searched_terms = configName.lower().split(" ")
-        for searched_term in searched_terms:
-          if searched_term in name:
-            searchTermInName = True
-      if searchTermInName:
-        returnIds.append(logId)
+    ids.append(row[0])
+  #Extract dates
+  for id_ in ids:
+    str_id = str(id_)
+    #First part of id is YYYYMMDD, so grab first 8 characters
+    year,month,day = str_id[:4],str_id[4:6],str_id[6:8]
+    addToListDict(dates,"Start","Start/" + year)
+    addToListDict(dates,"Start/" + year,"Start/" + year + "/" + month )
+    addToListDict(dates, "Start/" + year + "/" + month, "Start/" + year + "/" + month + "/" + day)
+  return dates
+
+def addToListDict(dict_,key,val):
+  if key not in dict_:
+    dict_[key] = [val]
+  elif val not in dict_[key]:
+    dict_[key].append(val)
+
+
+
+def searchLogs(configName, log):
+  cursor,db=getCursor()
+  query = configName.lower().replace(" ","%")
+  if not query:
+    query = "%"
+  print(query)
+  returnIds = []
+  entryIds = []
+  for row in cursor.execute('SELECT entry FROM test WHERE name LIKE ?',[query]):
+    entryIds.append(row[0])
+  print(entryIds)
+  for entryId in entryIds:
+    for row in cursor.execute('SELECT id,logtype FROM log WHERE header=?',[entryId]):
+      if log=="all" or row[1]==log:
+        returnIds.append(row[0])
+  print(returnIds)
   return returnIds
+
+
+def getLogsAtDate(date):
+  cursor,db = getCursor()
+  returnIds = []
+  select = "SELECT id,date FROM LOG WHERE date='" + date + "';"
+  for row in cursor.execute(select):
+    returnIds.append(row[0])
+  return returnIds
+
 
 #entry(id INTEGER PRIMARY KEY, log INTEGER, author TEXT, type TEXT, submitted TEXT)
 def searchEntries(startDate, endDate, log, tag, keyword):
@@ -576,7 +594,6 @@ def searchEntries(startDate, endDate, log, tag, keyword):
   endTime = endDate.replace("-","/") + ", 24:00:00"
   search_keyword = keyword.lower().split(" ")
   select = 'SELECT id,log FROM entry WHERE submitted>=\'' + startTime + '\' AND submitted<=\'' + endTime + '\';'
-  print(select)
   for row in cursor.execute(select):
     candidateIds.append([row[0],row[1]])
   nextRoundCandidates = []
@@ -618,15 +635,32 @@ def searchEntries(startDate, endDate, log, tag, keyword):
       nextRoundCandidates.append(candidate)
   return nextRoundCandidates
 
-    #image(name TEXT, base64 TEXT , entry INTEGER, appended INTEGER)
-    #file(name TEXT, data TEXT, entry INTEGER, appended INTEGER)
-    #comment(text INTEGER, entry INTEGER, appended INTEGER)
 
 #All routes
-#add_entry: for adding new log entry
-#add_config: for adding new test configuration
-#get_log: get all entries and log data (from its id)
-#header_exists: retruns whether a header exists for a log (from log type)
+@app.route('/fetch_tags', methods=['GET'])
+def fetch_tags():
+  global tags
+  return jsonify(tags=dict(tags))
+
+@app.route('/fetch_dates', methods=['GET'])
+def fetch_dates():
+  print("fetching dates of logs")
+  print("...")
+
+  dates = getDates()
+  return jsonify(dates=dates)
+
+@app.route('/logs_at_date', methods=['POST'])
+def logs_at_date():
+  query = request.get_json()
+  date = query["date"][6:]
+
+  print("received request to get logs at date " + date)
+
+  res = getLogsAtDate(date)
+
+  return jsonify(results=res)
+
 @app.route('/search_logs', methods=['POST'])
 def search_logs():
   query = request.get_json()
@@ -635,18 +669,15 @@ def search_logs():
   print("...")
 
   log = query["log"]
-  startDate = query["start_date"]
-  endDate = query["end_date"]
   configName = query["config_name"]
 
-  res = searchLogs(startDate, endDate, configName, log)
+  res = searchLogs(configName, log)
 
   return jsonify(results=res)
 
 @app.route('/search_entries', methods=['POST'])
 def search_entries():
   query = request.get_json()
-  print(query)
 
   print("received request for entry search")
   print("...")
@@ -687,18 +718,6 @@ def add_entry():
   screenCapFiles = []
   screenCapFilesInd = 0
 
-  '''
-  try:
-    addLogPost(log, author, files, comment,images,tags,isAppended)
-    print("succesfully added entry to " + log)
-    print("...")
-    success=True
-  except:
-    print("unsuccessful attempt to add entry to " + log)
-    print("...")
-    success=False
-  '''
-
   return jsonify(successfullyWritten = success)
 
 @app.route('/append_to_post', methods=['POST'])
@@ -723,18 +742,6 @@ def append_to_post():
   global screenCapFiles, screenCapFilesInd
   screenCapFiles = []
   screenCapFilesInd = 0
-
-
-  '''
-  try:
-    appendToLogPost(logId, entryId, author, comment, files, images)
-    print("succesfully appended to entry with id:" + str(entryId))
-    print("...")
-    success = True
-  except:
-    print("unsuccesful attempt to append to entry with id:" + str(entryId))
-    success = False
-  '''
 
   return jsonify(successfullyWritten = success)
 
@@ -786,10 +793,7 @@ def screenCapToBase64(name):
 @app.route('/get_log/<id>', methods=['GET'])
 def get_log(id=None):
   returnData = {}
-  #try:
   returnData = getLogData(id)
-  #except:
-  #  print("Unsucessful attempt to retrieve log: " + str(id))
 
   return jsonify(data = returnData)
 
@@ -806,55 +810,6 @@ def get_entries(id=None):
   entries = getEntries(id)
   return jsonify(entries = entries)
 
-@app.route('/get_recent', methods=['GET'])
-def get_recent():
-  ids = getRecentLogData()
-  return jsonify(ids = ids)
-
-
-@app.route('/set_autocommit', methods=['POST'])
-def set_autocommit():
-  query = request.get_json()
-
-  log = query["log"]
-  value = query["value"]
-
-  succ = False
-
-  try:
-    changeAutoCommit(log,value)
-
-    succ = True
-  except:
-    print("unsuccesful attempt to set autocommit")
-    succ = False
-
-  return jsonify(succ = succ)
-
-@app.route('/get_autocommit/<log>', methods=['GET'])
-def get_autocommit(log=None):
-  value = 1
-  try:
-    value = getAutoCommit(log)
-  except:
-    print("unsuccessful attempt to get autocommit")
-
-  return jsonify(value = value)
-
-@app.route('/commit_log', methods=['POST'])
-def commit_log():
-  query = request.get_json()
-
-  log = query["log"]
-
-  try:
-    succ = commitLog(log)
-  except:
-    print("unsuccessful attempt to commit log: " + log)
-    succ = False
-
-  return jsonify(succ = succ)
-
 
 @app.route('/header_exists', methods=['GET', 'POST'])
 def header_exists():
@@ -868,12 +823,13 @@ def header_exists():
   log = query['log']
   does = True
   curr_log = log
-  logId = getOpenLogId(log)
-  print("Log id: " + str(logId))
   #Check whether header exists
-  doesExist = headerExists(logId)
-  #except:
-  #  print("unsuccessful attempt to check if header exists")
+  doesExist = headerExists(log)
+  #Get log id
+  now = datetime.now()
+  dateId = now.strftime("%Y%m%d")
+  global logIds
+  logId = dateId + str(logIds[log])
 
   return jsonify(exists = doesExist, logId = logId)
 
@@ -922,7 +878,7 @@ def fileUpload():
     global curr_log
     global screenCapFilesInd
     now = datetime.now()
-    date = now.strftime("/%Y/%m/%d/")
+    date = now.strftime("%Y/%m/%d/").split("/")
     file = request.files['file']
     filename = file.filename
     if(filename=='blob'):
@@ -930,17 +886,16 @@ def fileUpload():
       filename = time + '_' + str(screenCapFilesInd)
       screenCapFilesInd += 1
     log = curr_log
-    target = COMMON_FOLDER + date
-    if not os.path.isdir(target):
-        os.mkdir(target)
+    target = COMMON_FOLDER
+    for part in date:
+      target += part + "/"
+      if not os.path.isdir(target):
+          os.mkdir(target)
     destination="/".join([target, filename])
     file.save(destination)
     response = "success?"
     return response
 
-@app.route('/close', methods=['POST'])
-def close():
-    os.system("pkill -f firefox")
 
 def getConfigNames():
   names = []
@@ -980,10 +935,12 @@ def getConfigsFromDatabase():
   configs = {}
   select = "SELECT * FROM part;"
   for row in cursor.execute(select):
+    #row = (name, pname, pconfig)
     if row[0] not in configs:
       configs[row[0]] = [[row[1],row[2]],]
     else:
       configs[row[0]].append([row[1],row[2]])
+  #test(operator, name, entry)
   return configs
 
 
@@ -992,10 +949,11 @@ def my_index():
     return render_template("index.html")
 
 
-def runAutojobs():
-  os.system("python autojobs.py")
-
 if __name__ == '__main__':
+  #name = "Thu_Dec_10_10_15_43_PST_2020.jpg"
+  #screenCapFiles.append([name, screenCapToBase64(name)])
+  get_folders()
+  get_tags()
   if os.path.isfile(database_path):
     setUpDatabase()
   else:
