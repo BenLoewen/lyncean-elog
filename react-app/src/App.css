@@ -114,6 +114,19 @@ img.center{
   margin-top: 15px;
 }
 
+.date{
+  margin-left:15px;
+}
+
+.date-selector{
+  display:flex;
+  align-items:left;
+}
+
+.date-opt{
+  margin:5px;
+}
+
 #success{
   width: 100%;
   opacity: 70%;
@@ -178,7 +191,7 @@ img.center{
   font-weight: bold;
   font-size: 14;
   margin-top: 30px;
-  margin-left: 20px;
+  margin-left: 45px;
   text-align: center;
 }
 
@@ -188,11 +201,11 @@ img.center{
 
 #results{
   margin-top: 30px;
-  margin-left: 20px;
+  margin-left: 45px;
 }
 
 #select-log{
-  margin-left: 20px;
+  margin-left: 22px;
   text-align: center;
 }
 
@@ -204,6 +217,7 @@ img.center{
 #enter-keyword{
   text-align: left;
   margin-left: 10px;
+  margin-top: 15px;
 }
 
 
@@ -218,6 +232,11 @@ img.center{
 }
 
 #enter-comment::placeholder{
+  color: #C0C0C0;
+  opacity: 1;
+}
+
+#operator::placeholder{
   color: #C0C0C0;
   opacity: 1;
 }
@@ -253,4 +272,40 @@ img.center{
 
 #result-entries{
   margin-bottom: 25px;
+}
+
+#submit-entry{
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+#search-log-button{
+  margin-top: 32px;
+}
+
+#search-entry-button{
+  margin-top: 27px;
+  width: 250%;
+  height: 60%;
+}
+
+#keyword{
+  align-content:left;
+  margin-left: 5px;
+}
+
+#back{
+  width: 20%;
+  height: 120%;
+  margin-top: 10px;
+  margin-bottom: 10px;
+}
+
+#level{
+  margin-bottom: 10px;
+}
+
+.margin-top{
+  margin-top:10px;
 }
