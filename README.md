@@ -1,5 +1,4 @@
-# Lyncean Elog (Beta v-4)
-
+# Lyncean Elog 
 ## Instructions for Installation
 
 ### Preinstallation
@@ -7,19 +6,8 @@
 > sudo su
 ##### Install prerequisite packages
 > sudo apt install nodejs npm
-##### Create Directory and Pull Code
-> mkdir elog
-##### Start git repository
-> git init
-##### Pull Code 
-> git pull https://github.com/BenLoewen/lyncean-elog.git
+##### Run Code
+From inside flask-server folder
+> python server.py
 
-### Run Setup Tool
-> ../tool-kit/linux/setup-tool/setup.sh
-
-### Run Start Tool
-> ../tool-kit/linux/start-and-stop-tools/start.sh
-
-### Run Stop Tool
-> ../tool-kit/linux/start-and-stop-tools/stop.sh
 
