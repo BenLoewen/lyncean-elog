@@ -218,6 +218,6 @@ class Database:
             if config_name in configs:
                 parts = configs[config_name]
                 for part in parts:
-                    addPart(config_name,part[0],part[1])
+                    self.addPart(config_name,part[0],part[1])
         except Exception:
             pass
